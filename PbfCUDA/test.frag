@@ -1,17 +1,7 @@
-#version 330
+#version 430
 
 uniform	mat4 projectionMatrix;
 uniform	mat4 invProjectionMatrix;
-//uniform	mat4 modelViewMatrix;
-uniform sampler2D tex01;
-uniform sampler2D tex02;
-uniform sampler1D diffuseWrap;
-uniform sampler2D outlineTexture;
-uniform samplerCube cubemapTexture;
-uniform sampler2D tex_normal_x;
-uniform sampler2D tex_normal_y;
-uniform sampler2D tex_normal_z;
-
 uniform vec2 viewport;
 //uniform float near;
 uniform int renderType;
@@ -20,7 +10,16 @@ uniform int genNormal;
 
 in vec2 texCoord;
 
-layout (location = 0) out vec4 fragColor;
+layout(binding = 0) uniform sampler2D tex_depth;
+layout(binding = 1) uniform sampler2D tex02;
+layout(binding = 2) uniform sampler1D diffuseWrap;
+layout(binding = 3) uniform sampler2D outlineTexture;
+layout(binding = 4) uniform samplerCube cubemapTexture;
+layout(binding = 5) uniform sampler2D tex_normal_x;
+layout(binding = 6) uniform sampler2D tex_normal_y;
+layout(binding = 7) uniform sampler2D tex_normal_z;
+
+layout(location = 0) out vec4 fragColor;
 
 vec4 getEyePos(vec4 Xndc)
 {
@@ -33,27 +32,27 @@ vec4 getEyePos(vec4 Xndc)
 
 vec3 calcNormalVector(vec2 coord, vec2 texelSize)
 {
-	float z_ndc = texture(tex01, coord).x;
+	float z_ndc = texture(tex_depth, coord).x;
 	z_ndc = 2.0*z_ndc - 1.0;
 	vec4 Xndc = vec4(2.0*coord - 1.0, z_ndc, 1.0);
 	vec4 Xe = getEyePos(Xndc);
 
-	z_ndc = texture(tex01, coord + vec2(texelSize.x, 0.0)).x;
+	z_ndc = texture(tex_depth, coord + vec2(texelSize.x, 0.0)).x;
 	z_ndc = 2.0*z_ndc - 1.0;
 	Xndc = vec4(2.0*(coord + vec2(texelSize.x, 0.0)) - 1.0, z_ndc, 1.0);
 	vec3 dx = (getEyePos(Xndc) - Xe).xyz;
 	
-	z_ndc = texture(tex01, coord + vec2(-texelSize.x, 0.0)).x;
+	z_ndc = texture(tex_depth, coord + vec2(-texelSize.x, 0.0)).x;
 	z_ndc = 2.0*z_ndc - 1.0;
 	Xndc = vec4(2.0*(coord + vec2(-texelSize.x, 0.0)) - 1.0, z_ndc, 1.0);
 	vec3 dx2 = (Xe - getEyePos(Xndc)).xyz;
 
-	z_ndc = texture(tex01, coord + vec2(0.0, texelSize.y)).x;
+	z_ndc = texture(tex_depth, coord + vec2(0.0, texelSize.y)).x;
 	z_ndc = 2.0*z_ndc - 1.0;
 	Xndc = vec4(2.0*(coord + vec2(0.0, texelSize.y)) - 1.0, z_ndc, 1.0);
 	vec3 dy = (getEyePos(Xndc) - Xe).xyz;
 	
-	z_ndc = texture(tex01, coord + vec2(0.0, -texelSize.y)).x;
+	z_ndc = texture(tex_depth, coord + vec2(0.0, -texelSize.y)).x;
 	z_ndc = 2.0*z_ndc - 1.0;
 	Xndc = vec4(2.0*(coord + vec2(0.0, -texelSize.y)) - 1.0, z_ndc, 1.0);
 	vec3 dy2 = (Xe - getEyePos(Xndc)).xyz;
@@ -75,15 +74,15 @@ vec3 calcNormalVector(vec2 coord, vec2 texelSize)
 vec3 calcNormalVector2(vec2 coord, vec2 texelSize){
 	float diff = 0.5;
 
-	float z_ndc = texture(tex01, coord).x;
+	float z_ndc = texture(tex_depth, coord).x;
 	vec3 center = 2.0 * vec3(coord, z_ndc) - 1.0;
 	center = getEyePos(vec4(center, 1.0)).xyz;
 
-	z_ndc = texture(tex01, coord + vec2(-texelSize.x, 0.0)).x;
+	z_ndc = texture(tex_depth, coord + vec2(-texelSize.x, 0.0)).x;
 	vec3 left = 2.0 * vec3(coord + vec2(-texelSize.x, 0.0), z_ndc) - 1.0;
 	left = getEyePos(vec4(left, 1.0)).xyz;
 	
-	z_ndc = texture(tex01, coord + vec2(texelSize.x, 0.0)).x;
+	z_ndc = texture(tex_depth, coord + vec2(texelSize.x, 0.0)).x;
 	vec3 right = 2.0 * vec3(coord + vec2(texelSize.x, 0.0), z_ndc) - 1.0;
 	right = getEyePos(vec4(right, 1.0)).xyz;
 
@@ -95,11 +94,11 @@ vec3 calcNormalVector2(vec2 coord, vec2 texelSize){
 	//	right_direction = center - left;
 	//}
 
-	z_ndc = texture(tex01, coord + vec2(0.0, texelSize.y)).x;
+	z_ndc = texture(tex_depth, coord + vec2(0.0, texelSize.y)).x;
 	vec3 up = 2.0 * vec3(coord + vec2(0.0, texelSize.y), z_ndc) - 1.0;
 	up = getEyePos(vec4(up, 1.0)).xyz;
 
-	z_ndc = texture(tex01, coord + vec2(0.0, -texelSize.y)).x;
+	z_ndc = texture(tex_depth, coord + vec2(0.0, -texelSize.y)).x;
 	vec3 down = 2.0 * vec3(coord + vec2(0.0, -texelSize.y), z_ndc) - 1.0;
 	down = getEyePos(vec4(down, 1.0)).xyz;
 
@@ -121,7 +120,7 @@ vec3 calcNormalVector2(vec2 coord, vec2 texelSize){
 void main()
 {
 	vec2 texelSize = vec2(1.0/viewport.x, 1.0/viewport.y);
-	float depth = texture(tex01, texCoord).x;
+	float depth = texture(tex_depth, texCoord).x;
 	if(depth > 0.9999) discard;
 
 	float thickness = clamp(texture(tex02, texCoord).x, 0.0, 1.0);

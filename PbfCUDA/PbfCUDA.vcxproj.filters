@@ -30,24 +30,15 @@
     <ClInclude Include="LowpassFilter.cuh">
       <Filter>Source Codes</Filter>
     </ClInclude>
+    <ClInclude Include="BFGL.h">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="depth.frag">
       <Filter>Source Codes</Filter>
     </None>
     <None Include="depth.vert">
-      <Filter>Source Codes</Filter>
-    </None>
-    <None Include="filterX.frag">
-      <Filter>Source Codes</Filter>
-    </None>
-    <None Include="filterX.vert">
-      <Filter>Source Codes</Filter>
-    </None>
-    <None Include="filterY.frag">
-      <Filter>Source Codes</Filter>
-    </None>
-    <None Include="filterY.vert">
       <Filter>Source Codes</Filter>
     </None>
     <None Include="test.frag">

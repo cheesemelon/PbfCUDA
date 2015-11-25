@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="BFGL.h" />
     <ClInclude Include="BilateralFilter.cuh" />
     <ClInclude Include="Common.h" />
     <ClInclude Include="Font.h" />
@@ -31,10 +32,6 @@
   <ItemGroup>
     <None Include="depth.frag" />
     <None Include="depth.vert" />
-    <None Include="filterX.frag" />
-    <None Include="filterX.vert" />
-    <None Include="filterY.frag" />
-    <None Include="filterY.vert" />
     <None Include="skybox.frag" />
     <None Include="skybox.vert" />
     <None Include="test.frag" />

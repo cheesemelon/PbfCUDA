@@ -1,7 +1,7 @@
 #version 330
 
-uniform	mat4 P;
-uniform	mat4 V;
+uniform mat4 V;
+uniform mat4 P;
 //uniform vec2 viewport;
 uniform float spriteSize;
 

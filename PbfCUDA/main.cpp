@@ -111,19 +111,7 @@ main(int argc, char *argv[])
 	glfwSetWindowTitle(window, "PBF with CUDA");
 
 	// temp
-	loadRAW("diffuse wrap_spirit of sea.raw", texdata_diffuseWrap, 256, 1);
-	//loadImage("Resources/iceflats/iceflats_rt.tga", &texdata_skybox[0], &skybox_width, &skybox_height);
-	//flipImageVertical(&texdata_skybox[0], skybox_width, skybox_height, GL_BGR);
-	//loadImage("Resources/iceflats/iceflats_lf.tga", &texdata_skybox[1], &skybox_width, &skybox_height);
-	//flipImageVertical(&texdata_skybox[1], skybox_width, skybox_height, GL_BGR);
-	//loadImage("Resources/iceflats/iceflats_up.tga", &texdata_skybox[2], &skybox_width, &skybox_height);
-	//flipImageVertical(&texdata_skybox[2], skybox_width, skybox_height, GL_BGR);
-	//loadImage("Resources/iceflats/iceflats_dn.tga", &texdata_skybox[3], &skybox_width, &skybox_height);
-	//flipImageVertical(&texdata_skybox[3], skybox_width, skybox_height, GL_BGR);
-	//loadImage("Resources/iceflats/iceflats_ft.tga", &texdata_skybox[4], &skybox_width, &skybox_height);
-	//flipImageVertical(&texdata_skybox[4], skybox_width, skybox_height, GL_BGR);
-	//loadImage("Resources/iceflats/iceflats_bk.tga", &texdata_skybox[5], &skybox_width, &skybox_height);
-	//flipImageVertical(&texdata_skybox[5], skybox_width, skybox_height, GL_BGR);
+	loadRAW("resources/diffuse wrap_spirit of sea.raw", texdata_diffuseWrap, 256, 1);
 	loadImage("Resources/TropicalSunnyDay/TropicalSunnyDayLeft2048.png", &texdata_skybox[0], &skybox_width, &skybox_height);
 	flipImageVertical(&texdata_skybox[0], skybox_width, skybox_height, GL_BGR);
 	loadImage("Resources/TropicalSunnyDay/TropicalSunnyDayRight2048.png", &texdata_skybox[1], &skybox_width, &skybox_height);
@@ -243,9 +231,10 @@ glm::vec2 viewport;
 glm::vec3 translation;
 glm::mat4 scaleMatrix;
 glm::mat4 rotationMatrix;
-glm::mat4 modelMatrix;
+//glm::mat4 modelMatrix;
 glm::mat4 viewMatrix;
 glm::mat4 projectionMatrix;
+glm::mat4 MVPMatrix;
 
 // Viewing control
 glm::quat	qX;
@@ -453,9 +442,7 @@ enum Textures
 	TEX_SPHERE = 0,
 	TEX_COLOR,
 	TEX_THICKNESS,
-	TEX_SMOOTHED_TEMP,
-	TEX_SMOOTHED_DEPTH,
-	TEX_SMOOTHED_DEPTH_RED,
+	TEX_DEPTH,
 	TEX_DIFFUSE_WRAP,
 	TEX_OUTLINE,
 	TEX_NORMAL_X,
@@ -503,19 +490,15 @@ enum ShaderType
 {
 	SHDR_DEPTH = 0,
 	SHDR_THICKNESS,
-	SHDR_FILTER_X,
-	SHDR_FILTER_Y,
 	SHDR_TEST,
 	SHDR_SKYBOX,
 
 	NUM_SHADERS
 };
 
-char* shaders[10][2] = {
+char* shaders[][2] = {
 	{(char*)"depth.vert",		(char*)"depth.frag"},
 	{(char*)"thickness.vert",	(char*)"thickness.frag"},
-	{(char*)"filterX.vert",		(char*)"filterX.frag"},
-	{(char*)"filterY.vert",		(char*)"filterY.frag"},
 	{(char*)"test.vert",		(char*)"test.frag"},
 	{ (char*)"skybox.vert", (char *)"skybox.frag" },
 };
@@ -527,6 +510,7 @@ namespace UNILOC_DEPTH
 {
 	GLuint projMatLoc		= 0;
 	GLuint viewMatLoc		= 0;
+	GLuint MVPMatLoc		= 0;
 	GLuint textureLoc		= 0;
 	GLuint viewportLoc		= 0;
 	GLuint spriteSizeLoc	= 0; 
@@ -537,30 +521,10 @@ namespace UNILOC_THICKNESS
 {
 	GLuint projMatLoc		= 0;
 	GLuint viewMatLoc		= 0;
-	GLuint textureLoc		= 0;
+	GLuint MVPMatLoc		= 0;
 	GLuint viewportLoc		= 0;
 	GLuint spriteSizeLoc	= 0; 
 	GLuint alphaLoc         = 0; 
-};
-
-namespace UNILOC_FILTER_X
-{
-	GLuint projMatLoc		= 0;
-	GLuint viewMatLoc		= 0;
-	GLuint textureLoc		= 0;
-	GLuint viewportLoc		= 0;
-	GLuint scaleLoc			= 0;
-	GLuint tonalScaleLoc	= 0;
-};
-
-namespace UNILOC_FILTER_Y
-{
-	GLuint projMatLoc		= 0;
-	GLuint viewMatLoc		= 0;
-	GLuint textureLoc		= 0;
-	GLuint viewportLoc		= 0;
-	GLuint scaleLoc			= 0;
-	GLuint tonalScaleLoc	= 0;
 };
 
 namespace UNILOC_TEST
@@ -679,31 +643,18 @@ initRenderingPipeline()
 	//@ get uniform location
 	UNILOC_DEPTH::projMatLoc	= glGetUniformLocation(programIds[SHDR_DEPTH], "P");
 	UNILOC_DEPTH::viewMatLoc	= glGetUniformLocation(programIds[SHDR_DEPTH], "V");
+	UNILOC_DEPTH::MVPMatLoc		= glGetUniformLocation(programIds[SHDR_DEPTH], "MVP");
 	UNILOC_DEPTH::textureLoc	= glGetUniformLocation(programIds[SHDR_DEPTH], "tex");
 	UNILOC_DEPTH::viewportLoc	= glGetUniformLocation(programIds[SHDR_DEPTH], "viewport");
 	UNILOC_DEPTH::spriteSizeLoc = glGetUniformLocation(programIds[SHDR_DEPTH], "spriteSize");
-	UNILOC_DEPTH::alphaLoc = glGetUniformLocation(programIds[SHDR_DEPTH], "alpha");
+	UNILOC_DEPTH::alphaLoc		= glGetUniformLocation(programIds[SHDR_DEPTH], "alpha");
 
 	UNILOC_THICKNESS::projMatLoc	= glGetUniformLocation(programIds[SHDR_THICKNESS], "P");
 	UNILOC_THICKNESS::viewMatLoc	= glGetUniformLocation(programIds[SHDR_THICKNESS], "V");
-	UNILOC_THICKNESS::textureLoc	= glGetUniformLocation(programIds[SHDR_THICKNESS], "tex");
+	UNILOC_THICKNESS::MVPMatLoc		= glGetUniformLocation(programIds[SHDR_THICKNESS], "MVP");
 	UNILOC_THICKNESS::viewportLoc	= glGetUniformLocation(programIds[SHDR_THICKNESS], "viewport");
 	UNILOC_THICKNESS::spriteSizeLoc = glGetUniformLocation(programIds[SHDR_THICKNESS], "spriteSize");
 	UNILOC_THICKNESS::alphaLoc = glGetUniformLocation(programIds[SHDR_THICKNESS], "alpha");
-
-	UNILOC_FILTER_X::projMatLoc = glGetUniformLocation(programIds[SHDR_FILTER_X], "P");
-	UNILOC_FILTER_X::viewMatLoc = glGetUniformLocation(programIds[SHDR_FILTER_X], "V");
-	UNILOC_FILTER_X::textureLoc = glGetUniformLocation(programIds[SHDR_FILTER_X], "tex");
-	UNILOC_FILTER_X::viewportLoc = glGetUniformLocation(programIds[SHDR_FILTER_X], "viewport");
-	UNILOC_FILTER_X::scaleLoc = glGetUniformLocation(programIds[SHDR_FILTER_X], "scale");
-	UNILOC_FILTER_X::tonalScaleLoc = glGetUniformLocation(programIds[SHDR_FILTER_X], "tonalScale");
-
-	UNILOC_FILTER_Y::projMatLoc = glGetUniformLocation(programIds[SHDR_FILTER_Y], "P");
-	UNILOC_FILTER_Y::viewMatLoc = glGetUniformLocation(programIds[SHDR_FILTER_Y], "V");
-	UNILOC_FILTER_Y::textureLoc = glGetUniformLocation(programIds[SHDR_FILTER_Y], "tex");
-	UNILOC_FILTER_Y::viewportLoc = glGetUniformLocation(programIds[SHDR_FILTER_Y], "viewport");
-	UNILOC_FILTER_Y::scaleLoc = glGetUniformLocation(programIds[SHDR_FILTER_Y], "scale");
-	UNILOC_FILTER_Y::tonalScaleLoc = glGetUniformLocation(programIds[SHDR_FILTER_Y], "tonalScale");
 
 	UNILOC_TEST::curProjMatLoc = glGetUniformLocation(programIds[SHDR_TEST], "curProjectionMatrix");
 	UNILOC_TEST::curModelViewMatLoc = glGetUniformLocation(programIds[SHDR_TEST], "curModelViewMatrix");
@@ -747,22 +698,8 @@ initRenderingPipeline()
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	//@ create depth texture
-	//glGenTextures(1, &textureIds[TEX_DEPTH]);
-	//glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
-	//glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, windowW, windowH, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-	//glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	//glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	//glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	//glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	//glBindTexture(GL_TEXTURE_2D, 0);
-	glDeleteRenderbuffers(1, &renderbuffer_depth);
-	glGenRenderbuffers(1, &renderbuffer_depth);
-	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer_depth);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, windowW, windowH);
-	glBindRenderbuffer(GL_RENDERBUFFER, 0);
-
-	glGenTextures(1, &textureIds[TEX_SMOOTHED_DEPTH_RED]);
-	glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH_RED]);
+	glGenTextures(1, &textureIds[TEX_DEPTH]);
+	glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, windowW, windowH, 0, GL_RED, GL_FLOAT, NULL);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -770,25 +707,11 @@ initRenderingPipeline()
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	//@ create smoothed depth texture (temp)
-	glGenTextures(1, &textureIds[TEX_SMOOTHED_TEMP]);
-	glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_TEMP]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, windowW, windowH, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	//@ create smoothed depth texture
-	glGenTextures(1, &textureIds[TEX_SMOOTHED_DEPTH]);
-	glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, windowW, windowH, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	glDeleteRenderbuffers(1, &renderbuffer_depth);
+	glGenRenderbuffers(1, &renderbuffer_depth);
+	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer_depth);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, windowW, windowH);
+	glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
 	glGenTextures(1, &textureIds[TEX_DIFFUSE_WRAP]);
 	glBindTexture(GL_TEXTURE_1D, textureIds[TEX_DIFFUSE_WRAP]);
@@ -842,12 +765,11 @@ initRenderingPipeline()
 	//@ attach color textures
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureIds[TEX_COLOR], 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, textureIds[TEX_THICKNESS], 0);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH_RED], 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, textureIds[TEX_DEPTH], 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, textureIds[TEX_OUTLINE], 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT4, GL_TEXTURE_2D, textureIds[TEX_NORMAL_X], 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT5, GL_TEXTURE_2D, textureIds[TEX_NORMAL_Y], 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT6, GL_TEXTURE_2D, textureIds[TEX_NORMAL_Z], 0);
-	//glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, textureIds[TEX_DEPTH], 0);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbuffer_depth);
 
 	//@ set the list of draw buffers
@@ -866,57 +788,6 @@ initRenderingPipeline()
 		exit(1);
 	}
 //	else	cout << "FBO_DEPTH ready." << endl;
-	
-	/* previous works */
-	///*
-	//@ create FBO_FILTER_X
-	glGenFramebuffers(1, &pFBOArray[FBO_FILTER_X]);
-	glBindFramebuffer(GL_FRAMEBUFFER, pFBOArray[FBO_FILTER_X]);
-
-	//@ attach depth texture
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureIds[TEX_COLOR], 0);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH], 0);
-
-	//@ set the list of draw buffers
-	{
-	//	GLuint attachments[2] = {GL_COLOR_ATTACHMENT0, GL_DEPTH_ATTACHMENT};
-	//	glDrawBuffers(2, attachments);
-		GLuint attachments[1] = {GL_COLOR_ATTACHMENT0};
-		glDrawBuffers(1, attachments);
-		checkOpenGL("glDrawBuffers()", __FILE__, __LINE__, false, true);
-	}
-
-	if( glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-	{
-		cout << "Error in FBO_FILTER." << endl;
-		exit(1);
-	}
-//	else	cout << "FBO_FILTER ready." << endl;
-
-	//@ create FBO_FILTER_Y
-	glGenFramebuffers(1, &pFBOArray[FBO_FILTER_Y]);
-	glBindFramebuffer(GL_FRAMEBUFFER, pFBOArray[FBO_FILTER_Y]);
-
-	//@ attach depth texture
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureIds[TEX_COLOR], 0);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_TEMP], 0);
-
-	//@ set the list of draw buffers
-	{
-	//	GLuint attachments[2] = {GL_COLOR_ATTACHMENT0, GL_DEPTH_ATTACHMENT};
-	//	glDrawBuffers(2, attachments);
-		GLuint attachments[1] = {GL_COLOR_ATTACHMENT0};
-		glDrawBuffers(1, attachments);
-		checkOpenGL("glDrawBuffers()", __FILE__, __LINE__, false, true);
-	}
-
-	if( glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-	{
-		cout << "Error in FBO_FILTER." << endl;
-		exit(1);
-	}
-//	else	cout << "FBO_FILTER ready." << endl;
-	//*/
 
 	//@ set back to default FBO
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -925,10 +796,10 @@ initRenderingPipeline()
 	timer1 = new TimerGPU();
 	delete timer2;
 	timer2 = new TimerGPU();
-	sFilter->init(windowW, windowH, freq_radius, sigma_r_SFBF, 0.01, textureIds[TEX_SMOOTHED_DEPTH_RED]);
+	sFilter->init(windowW, windowH, freq_radius, sigma_r_SFBF, 0.01, textureIds[TEX_DEPTH]);
 	delete filter;
 	filter = BilateralFilter::create(windowW, windowH,
-		textureIds[TEX_SMOOTHED_DEPTH_RED], freq_radius, sigma_s, sigma_r / 255.0f, iterations,
+		textureIds[TEX_DEPTH], freq_radius, sigma_s, sigma_r / 255.0f, iterations,
 		textureIds[TEX_OUTLINE], dog_radius, dog_sigma, dog_similarity,
 		textureIds[TEX_THICKNESS]);
 	filter->setProjectionMatrix(projectionMatrix);
@@ -994,9 +865,9 @@ render(GLFWwindow* window)
 
 	//@ intermediate scene
 	//@ set MVP matrix
-	viewMatrix			= glm::lookAt(cameraPos, targetPos, glm::vec3(0, 1.0f, 0));
-	viewMatrix			= viewMatrix*rotationMatrix*scaleMatrix;
-
+	viewMatrix	= glm::lookAt(cameraPos, targetPos, glm::vec3(0, 1.0f, 0));
+	viewMatrix	= viewMatrix * rotationMatrix * scaleMatrix;
+	MVPMatrix	= projectionMatrix * viewMatrix;
 
 	// Depth and Thickness
 	//
@@ -1015,61 +886,64 @@ render(GLFWwindow* window)
 	spriteSize = (float)screenH / numSpritePerWindowWidth * scale;
 	filter->setSigmaS(spriteSize * (sigma_s / 255.0f));
 
+	// Copy particle data to array buffer.
+	//
+	glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float4)*pSystem->numParticles, pSystem->h_p, GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
 	// Depth of the fluid surface
 	//
 	glEnable(GL_DEPTH_TEST);	// Enable the depth test to obtain the eye-closest surface
 	glUseProgram(programIds[SHDR_DEPTH]);
 	{
 		glUniform1f(UNILOC_DEPTH::spriteSizeLoc, spriteSize);
-		//glUniform1f(UNILOC_DEPTH::alphaLoc, alpha);
-		//glUniform2fv(UNILOC_DEPTH::viewportLoc, 1, &viewport[0]);
-		glUniformMatrix4fv(UNILOC_DEPTH::projMatLoc, 1, GL_FALSE, &projectionMatrix[0][0]); 
-		glUniformMatrix4fv(UNILOC_DEPTH::viewMatLoc, 1, GL_FALSE, &viewMatrix[0][0]); 
+		glUniformMatrix4fv(UNILOC_DEPTH::viewMatLoc, 1, GL_FALSE, &viewMatrix[0][0]);
+		glUniformMatrix4fv(UNILOC_DEPTH::projMatLoc, 1, GL_FALSE, &projectionMatrix[0][0]);
 		//glUniformMatrix4fv(UNILOC_DEPTH::anisotropyMatLoc, 1, GL_FALSE, &pSystem->h_mat[0].x); 
 
 		glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(float4)*pSystem->numParticles, pSystem->h_p, GL_STATIC_DRAW);
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
 
 		glDrawArrays(GL_POINTS, 0, pSystem->numParticles);
 
 		glDisableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 	glUseProgram(0);
+	glDisable(GL_DEPTH_TEST);	// Disable the depth test to accumulate the thickness
 	checkOpenGL("Depth Shader", __FILE__, __LINE__, false, true);
 
 	// Thickness of the fluid to mimic volume of fluid
 	//
-	glDisable(GL_DEPTH_TEST);	// Disable the depth test to accumulate the thickness
 	glEnable(GL_BLEND);			// Accumlate the thickness using the additive alpha blending
 	glBlendFunc(GL_ONE, GL_ONE);
 	glUseProgram(programIds[SHDR_THICKNESS]);
 	{
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH_RED]);
-		glUniform1i(UNILOC_THICKNESS::textureLoc, 0);
 		glUniform1f(UNILOC_THICKNESS::spriteSizeLoc, spriteSize);
 		glUniform1f(UNILOC_THICKNESS::alphaLoc, fluidAlpha);
 		glUniform2fv(UNILOC_THICKNESS::viewportLoc, 1, &viewport[0]);
-		glUniformMatrix4fv(UNILOC_THICKNESS::projMatLoc, 1, GL_FALSE, &projectionMatrix[0][0]); 
-		glUniformMatrix4fv(UNILOC_THICKNESS::viewMatLoc, 1, GL_FALSE, &viewMatrix[0][0]); 
+		glUniformMatrix4fv(UNILOC_THICKNESS::MVPMatLoc, 1, GL_FALSE, &MVPMatrix[0][0]);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
 
 		glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
-		//glBufferData(GL_ARRAY_BUFFER, sizeof(float4)*pSystem->numParticles, pSystem->h_p, GL_STATIC_DRAW);
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
 		
 		glDrawArrays(GL_POINTS, 0, pSystem->numParticles);
 		
 		glDisableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 	glUseProgram(0);
+	glDisable(GL_BLEND);
 	checkOpenGL("Thickness Shader", __FILE__, __LINE__, false, true);
 
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_BLEND);
-	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_VERTEX_PROGRAM_POINT_SIZE);
 
 	//@ orthogonal pjorection from now on
@@ -1088,88 +962,6 @@ render(GLFWwindow* window)
 		//filter.filter(textureIds[TEX_THICKNESS]);
 	}
 	else if (dImageType == DIMG_SEPERABLE_FILTERED){
-		/* Previous works */
-		/*
-		//@ do some filtering
-		glEnable(GL_DEPTH_TEST);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	//	glAlphaFunc(GL_GREATER, 0);	// glAlphaFunc() is deprecated.
-	//	checkOpenGL("glAlphaFunc()", __FILE__, __LINE__, false, true);
-		glActiveTexture(GL_TEXTURE0);
-	
-		// FILTER_Y
-		//
-		glBindFramebuffer(GL_FRAMEBUFFER, pFBOArray[FBO_FILTER_Y]);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
-		glUseProgram(programIds[SHDR_FILTER_Y]);
-		{
-			glUniform1f(UNILOC_FILTER_Y::scaleLoc, scale);
-			glUniform1i(UNILOC_FILTER_Y::textureLoc, 0);
-			glUniform2fv(UNILOC_FILTER_Y::viewportLoc, 1, &viewport[0]);
-			glUniform1f(UNILOC_FILTER_Y::tonalScaleLoc, sigma_r / 255.0f);
-	
-			glUniformMatrix4fv(UNILOC_FILTER_Y::projMatLoc, 1, GL_FALSE, &curProjectionMatrix[0][0]);
-			glUniformMatrix4fv(UNILOC_FILTER_Y::viewMatLoc, 1, GL_FALSE, &curViewMatrix[0][0]); 
-	
-			glBindBuffer(GL_ARRAY_BUFFER, finalVbo[0]);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(float3)*4, quadVert, GL_STATIC_DRAW);
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-	
-			glBindBuffer(GL_ARRAY_BUFFER, finalVbo[1]);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(float2)*4, texCoord, GL_STATIC_DRAW);
-			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
-	
-		//	glDrawArrays(GL_QUADS, 0, 4);
-			glDrawArrays(GL_TRIANGLE_FAN, 0, 4);	// GL_QUADS is dprecated.
-			checkOpenGL("glDrawArrays()", __FILE__, __LINE__, false, true);
-			
-			glDisableVertexAttribArray(0);
-			glDisableVertexAttribArray(1);
-		}
-		glUseProgram(0);
-		checkOpenGL("Filter Y Shader", __FILE__, __LINE__, false, true);
-	
-		// FILTER_X
-		//
-		glBindFramebuffer(GL_FRAMEBUFFER, pFBOArray[FBO_FILTER_X]);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_TEMP]);
-		glUseProgram(programIds[SHDR_FILTER_X]);
-		{
-			glUniform1f(UNILOC_FILTER_X::scaleLoc, scale);
-			glUniform1i(UNILOC_FILTER_X::textureLoc, 0);
-			glUniform2fv(UNILOC_FILTER_X::viewportLoc, 1, &viewport[0]);
-			glUniform1f(UNILOC_FILTER_X::tonalScaleLoc, sigma_r / 255.0f);
-	
-			glUniformMatrix4fv(UNILOC_FILTER_X::projMatLoc, 1, GL_FALSE, &curProjectionMatrix[0][0]);
-			glUniformMatrix4fv(UNILOC_FILTER_X::viewMatLoc, 1, GL_FALSE, &curViewMatrix[0][0]); 
-	
-			glBindBuffer(GL_ARRAY_BUFFER, finalVbo[0]);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(float3)*4, quadVert, GL_STATIC_DRAW);
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-			
-			glBindBuffer(GL_ARRAY_BUFFER, finalVbo[1]);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(float2)*4, texCoord, GL_STATIC_DRAW);
-			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
-	
-			glDrawArrays(GL_TRIANGLE_FAN, 0, 4);	// GL_QUADS is dprecated.
-			checkOpenGL("glDrawArrays()", __FILE__, __LINE__, false, true);
-			
-			glDisableVertexAttribArray(0);
-			glDisableVertexAttribArray(1);
-		}
-		glUseProgram(0);
-		checkOpenGL("Filter X Shader", __FILE__, __LINE__, false, true);
-
-		glBindTexture(GL_TEXTURE_2D, 0);
-		*/
-
 		//filter->setDepthTexture(textureIds[TEX_SMOOTHED_DEPTH_RED]);
 		filter->filter(renderType == RenderTypes::RENDER_CEL || renderType == RenderTypes::RENDER_OUTLINE);
 
@@ -1194,17 +986,8 @@ render(GLFWwindow* window)
 	glClearColor(backgroundDarkness, backgroundDarkness, backgroundDarkness, 1);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	
-	glEnable(GL_DEPTH_TEST);
-
-	// Background blending
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
 //	float scaledZNear = zNear*((float)windowW/pplaneWidth);
 
-	//glEnable(GL_CULL_FACE);
-	//glCullFace(GL_FRONT);
-	glDepthMask(GL_FALSE);
 	glUseProgram(programIds[SHDR_SKYBOX]);
 	{
 		glActiveTexture(GL_TEXTURE0);
@@ -1223,22 +1006,12 @@ render(GLFWwindow* window)
 
 		glDisableVertexAttribArray(0);
 	}
-	checkOpenGL("Skybox error.", __FILE__, __LINE__, false, true);
-	glDepthMask(GL_TRUE);
-	//glDisable(GL_CULL_FACE);
+	checkOpenGL("Skybox Shader.", __FILE__, __LINE__, false, true);
 
 	glUseProgram(programIds[SHDR_TEST]);
 	{
 		glActiveTexture(GL_TEXTURE0);
-		//if (dImageType == DIMG_BILATERAL_FILTERED){
-		//	glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH_RED]);
-		//}
-		//else if (dImageType == DIMG_SEPERABLE_FILTERED){
-		//	glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH_RED]);
-		//}
-		//else{
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH_RED]);
-		//}
+		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
 
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_THICKNESS]);
@@ -1254,19 +1027,13 @@ render(GLFWwindow* window)
 
 		glActiveTexture(GL_TEXTURE5);
 		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_NORMAL_X]);
-		glUniform1i(glGetUniformLocation(programIds[SHDR_TEST], "tex_normal_x"), 5);
+
 		glActiveTexture(GL_TEXTURE6);
 		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_NORMAL_Y]);
-		glUniform1i(glGetUniformLocation(programIds[SHDR_TEST], "tex_normal_y"), 6);
+
 		glActiveTexture(GL_TEXTURE7);
 		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_NORMAL_Z]);
-		glUniform1i(glGetUniformLocation(programIds[SHDR_TEST], "tex_normal_x"), 7);
 
-		glUniform1i(UNILOC_TEST::texture01Loc, 0);
-		glUniform1i(UNILOC_TEST::texture02Loc, 1);
-		glUniform1i(UNILOC_TEST::diffuseWrap, 2);
-		glUniform1i(UNILOC_TEST::outlineTexture, 3);
-		glUniform1i(UNILOC_TEST::cubemapTexture, 4);
 		glUniform2fv(UNILOC_TEST::viewportLoc, 1, &viewport[0]);
 		glUniform1f(UNILOC_TEST::alphaLoc, fluidAlpha);
 		glUniform1i(UNILOC_TEST::renderType, renderType);
@@ -1298,8 +1065,6 @@ render(GLFWwindow* window)
 	checkOpenGL("Final Render Shader", __FILE__, __LINE__, false, true);
 
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_BLEND);
-	glDisable( GL_DEPTH_TEST );
 	
 	end = clock();
 	//cout << "total: " << end - start << endl;
@@ -1548,7 +1313,7 @@ keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 			screenshot1.clear();
 			screenshot1.resize(screenW * screenH);
 
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH_RED]);
+			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
 			glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, screenshot1.data());
 		}
 		break;
@@ -1557,7 +1322,7 @@ keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 			screenshot2.clear();
 			screenshot2.resize(screenW * screenH);
 
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SMOOTHED_DEPTH_RED]);
+			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
 			glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, screenshot2.data());
 		}
 		break;
