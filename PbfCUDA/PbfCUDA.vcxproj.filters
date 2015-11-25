@@ -1,0 +1,97 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Codes">
+      <UniqueIdentifier>{1640e006-e329-4e42-9d01-45b25a15aa1f}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Common.h">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="PBFSystem2D.cuh">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="shaderBasics.h">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="BilateralFilter.cuh">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="Font.h">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="temp.h">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="SFBF.cuh">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="LowpassFilter.cuh">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="depth.frag">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="depth.vert">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="filterX.frag">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="filterX.vert">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="filterY.frag">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="filterY.vert">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="test.frag">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="test.vert">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="thickness.frag">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="thickness.vert">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="skybox.vert">
+      <Filter>Source Codes</Filter>
+    </None>
+    <None Include="skybox.frag">
+      <Filter>Source Codes</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Codes</Filter>
+    </ClCompile>
+    <ClCompile Include="shaderBasics.cpp">
+      <Filter>Source Codes</Filter>
+    </ClCompile>
+    <ClCompile Include="temp.cpp">
+      <Filter>Source Codes</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="PBFSystem2D.cu">
+      <Filter>Source Codes</Filter>
+    </CudaCompile>
+    <CudaCompile Include="BilateralFilter.cu">
+      <Filter>Source Codes</Filter>
+    </CudaCompile>
+    <CudaCompile Include="SFBF.cu">
+      <Filter>Source Codes</Filter>
+    </CudaCompile>
+    <CudaCompile Include="LowpassFilter.cu">
+      <Filter>Source Codes</Filter>
+    </CudaCompile>
+  </ItemGroup>
+</Project>
