@@ -28,8 +28,10 @@
     <ClInclude Include="SFBF.cuh" />
     <ClInclude Include="shaderBasics.h" />
     <ClInclude Include="temp.h" />
+    <ClInclude Include="Shader.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="BilateralFilter.frag" />
     <None Include="depth.frag" />
     <None Include="depth.vert" />
     <None Include="skybox.frag" />

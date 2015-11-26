@@ -1,87 +1,92 @@
 #pragma once
 
 #include <vector>
-#include "temp.h"
+#include "gl\glew.h"
 #include "glm\glm.hpp"
+#include "temp.h"
+#include "Shader.h"
 
 class LowpassFilter;
 
-class BilateralFilter{
+class BFGL{
 protected:
 	int m_width, m_height;
-
-	int m_radius, m_nIterations;
+	int m_radius;
 	float m_sigma_s, m_sigma_r;
+	int m_nIterations;
+	GLuint m_canvasTextureID;
+	Shader *m_shader;
 
 	LowpassFilter *m_lowpassFilter;
-	glm::mat4 m_P;
 
-	BilateralFilter(int width, int height,
-		GLuint depthTexID, int bf_radius, int bf_sigma_s, float bf_sigma_r, int bf_nIterations,
-		GLuint outlineTexID, int dog_radius, int dog_sigma, float dog_similarity,
-		GLuint thicknessTexID);
-
-	// remove later
-	int m_restorePos;
-	float m_intensityRange;
-public:
-	static BilateralFilter* create(int width, int height,
-		GLuint depthTexID, int bf_radius, int bf_sigma_s, float bf_sigma_r, int bf_nIterations,
-		GLuint outlineTexID, int dog_radius, int dog_sigma, float dog_similarity,
-		GLuint thicknessTexID)
+	BFGL(int width, int height,
+		int radius, float sigma_s, float sigma_r, int nIterations)
+		: m_width(width), m_height(height),
+		m_radius(radius), m_sigma_s(sigma_s), m_sigma_r(sigma_r), m_nIterations(nIterations)
 	{
-		return new BilateralFilter(width, height, depthTexID, bf_radius, bf_sigma_s, bf_sigma_r, bf_nIterations, outlineTexID, dog_radius, dog_sigma, dog_similarity, thicknessTexID);
+		m_shader = Shader::create(ShaderUnit::createWithFile(GL_COMPUTE_SHADER, "BilateralFilter.frag"));
+
+		glGenTextures(1, &m_canvasTextureID);
+		glBindTexture(GL_TEXTURE_2D, m_canvasTextureID);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, width, height, 0, GL_RED, GL_FLOAT, NULL);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+public:
+	static BFGL* create(int width, int height, int radius, float sigma_s, float sigma_r, int nIterations)
+	{
+		return new BFGL(width, height, radius, sigma_s, sigma_r, nIterations);
 	}
 
-	~BilateralFilter();
-
-	void filter(bool renderOutline);
-	void setBFParam(int radius, int sigma_s, float sigma_r, int nIterations);
-	void setDOGParam(int radius, int sigma, float similarity);
-	void setDepthTexture(GLuint depthTexID);
-	void setOutlineTexture(GLuint outlineTexID);
-	void setThicknessTexture(GLuint thicknessTexID);
-	void setProjectionMatrix(glm::mat4 matrix);
-	void setRestorePos(int restorePos) { m_restorePos = restorePos; }
-	void setSigmaS(float sigmaS){ m_bf_sigma_s = sigmaS; }
-	void setIntensityRange(float zNear, float zFar){
-		//if (m_restorePos){
-		//}
-		m_intensityRange = abs(zFar - zNear);
-		m_bf_sigma_r = m_bf_sigma_r * m_intensityRange;
-
-
-		//float viewFrustumWidth =0;
-		//float viewFrustumHeight=0;
-
-		//if (m_restorePos){
-		//	//glm::vec4 v(1, -1, m_P[0][0], 1);
-		//	//float w_c = m_P[3][2] / (m_P[2][2] + v.z);
-		//	//glm::vec4 v_eye = glm::inverse(m_P) * (w_c * v);
-		//	//float viewFrustumWidth = v_eye.x - v_eye.y;
-
-
-		//	float temp = m_P[3][2];
-		//	temp = m_P[2][2];
-		//	viewFrustumWidth = 2.0f * ((zFar + zNear) * 0.5f) / m_P[0][0];
-		//	viewFrustumHeight = 2.0f * ((zFar + zNear) * 0.5f) / m_P[1][1];
-		//	//viewFrustumWidth = zNear / m_P[0][0];
-		//	//viewFrustumHeight = zNear / m_P[1][1];
-
-		//	m_sigma_s_x = (m_bf_sigma_s / (float)m_width) * viewFrustumWidth;
-		//	m_sigma_s_y = (m_bf_sigma_s / (float)m_height) * viewFrustumHeight;
-
-		//	//printf("width : %.4f, sigma_s : %.4f, sigam_s^ : %.4f\n, 1/width : %.4f", viewFrustumWidth, (float)m_bf_sigma_s, (m_bf_sigma_s / 1024.0f) * viewFrustumWidth, 1.0f / viewFrustumWidth);
-		//	//m_bf_sigma_s = (m_bf_sigma_s / 1024.0f) * viewFrustumWidth;
-		//}
-		//else{
-		//	m_sigma_s_x = m_bf_sigma_s;
-		//	m_sigma_s_y = m_bf_sigma_s;
-		//}
-		//printf("radius = %.3f, width = %.3f, sigmaS : %.3f, sigmaSX : %.3f, sigmaSY : %.3f, sigmaR : %.3f\n", (m_bf_radius / (float)m_width) * viewFrustumWidth, viewFrustumWidth, m_bf_sigma_s, m_sigma_s_x, m_sigma_s_y, m_bf_sigma_r);
-
-		//cout << v_eye.x << ", " << v_eye.y << ", " << v_eye.z << ", " << v_eye.w << endl;
+	~BFGL() {
+		delete m_shader;
+		glDeleteTextures(1, &m_canvasTextureID);
 	}
 
-	void filterThickness();
+	void setParameters(int radius, float sigma_s, float sigma_r, int nIterations, float zNear, float zFar){
+		m_radius = radius;
+		m_sigma_s = sigma_s;
+		m_sigma_r = sigma_r * (zFar - zNear) / 255.0f;
+		m_nIterations = nIterations;
+
+		printf("BFGL r : %d, sigma_s : %.2f, sigma_r : %.2f\n", m_radius, m_sigma_s, m_sigma_r);
+	}
+
+	void run(GLuint depthTextureID, const glm::mat4 &P, const glm::mat4 &invP){
+		glUseProgram(m_shader->getID());
+
+		glUniformMatrix4fv(m_shader->getUniformLocation("P"), 1, GL_FALSE, &P[0][0]);
+		glUniformMatrix4fv(m_shader->getUniformLocation("invP"), 1, GL_FALSE, &invP[0][0]);
+		glUniform1i(m_shader->getUniformLocation("width"), m_width);
+		glUniform1i(m_shader->getUniformLocation("height"), m_height);
+		glUniform1f(m_shader->getUniformLocation("sigma_s"), m_sigma_s);
+		glUniform1f(m_shader->getUniformLocation("sigma_r"), m_sigma_r);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindImageTexture(0, depthTextureID, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindImageTexture(1, m_canvasTextureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
+
+		int radius = m_radius;
+		int vertical = 0;
+		for (int i = 0; i < m_nIterations; ++i){
+			glUniform1i(m_shader->getUniformLocation("radius"), radius);
+			glUniform1i(m_shader->getUniformLocation("vertical"), vertical);
+			glDispatchCompute((m_width + 16 - 1) / 16, (m_height + 16 - 1) / 16, 1);
+			checkOpenGL("Filter error.", __FILE__, __LINE__, true, true);
+
+			glCopyImageSubData(m_canvasTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+				depthTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
+				m_width, m_height, 1);
+
+			vertical = 1 - vertical;
+			radius = (radius >> 1);
+		}
+
+		glUseProgram(0);
+	}
 };

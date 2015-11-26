@@ -29,16 +29,11 @@ protected:
 	std::vector<float> m_dog_Gaussian;
 
 	LowpassFilter *m_lowpassFilter;
-	glm::mat4 m_P;
 
 	BilateralFilter(int width, int height,
 		GLuint depthTexID, int bf_radius, int bf_sigma_s, float bf_sigma_r, int bf_nIterations,
 		GLuint outlineTexID, int dog_radius, int dog_sigma, float dog_similarity,
 		GLuint thicknessTexID);
-
-	// remove later
-	int m_restorePos;
-	float m_intensityRange;
 public:
 	static BilateralFilter* create(int width, int height,
 		GLuint depthTexID, int bf_radius, int bf_sigma_s, float bf_sigma_r, int bf_nIterations,
@@ -56,16 +51,12 @@ public:
 	void setDepthTexture(GLuint depthTexID);
 	void setOutlineTexture(GLuint outlineTexID);
 	void setThicknessTexture(GLuint thicknessTexID);
-	void setProjectionMatrix(glm::mat4 matrix);
-	void setRestorePos(int restorePos) { m_restorePos = restorePos; }
+	void setMatrix(const glm::mat4 &P, const glm::mat4 &invP);
 	void setSigmaS(float sigmaS){ m_bf_sigma_s = sigmaS; }
 	void setIntensityRange(float zNear, float zFar){
-		//if (m_restorePos){
-		//}
-		m_intensityRange = abs(zFar - zNear);
-		m_bf_sigma_r = m_bf_sigma_r * m_intensityRange;
+		m_bf_sigma_r = m_bf_sigma_r * (zFar - zNear);
 
-
+		printf("BFCU r : %d, sigma_s : %.2f, sigma_r : %.2f\n", m_bf_radius, m_bf_sigma_s, m_bf_sigma_r);
 		//float viewFrustumWidth =0;
 		//float viewFrustumHeight=0;
 

@@ -9,6 +9,7 @@
 #include "SFBF.cuh"
 #include "temp.h"
 #include "Font.h"
+#include "BFGL.h"
 
 // temp
 #include <cuda.h>
@@ -65,6 +66,7 @@ Font	*font = NULL;
 TimerGPU *timer1, *timer2 = NULL;
 int genNormal = 0;
 int restorePos = 0;
+BFGL *filter_BFGL = NULL;
 
 //@ simulation variables
 float	WORKSPACE_X = 24;	// 24
@@ -803,6 +805,8 @@ initRenderingPipeline()
 		textureIds[TEX_OUTLINE], dog_radius, dog_sigma, dog_similarity,
 		textureIds[TEX_THICKNESS]);
 	filter->setProjectionMatrix(projectionMatrix);
+	
+	filter_BFGL = BFGL::create(windowW, windowH, freq_radius, sigma_s, sigma_r, iterations);
 
 	glGenTextures(1, &textureIds[TEX_SKYBOX_CUBEMAP]);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, textureIds[TEX_SKYBOX_CUBEMAP]);
@@ -957,20 +961,13 @@ render(GLFWwindow* window)
 	glBindFramebuffer(GL_FRAMEBUFFER, pFBOArray[FBO_DEPTH]);
 	timer1->start();
 	if (dImageType == DIMG_BILATERAL_FILTERED){
-		sFilter->filter();
-		
+		filter_BFGL->run(textureIds[TEX_DEPTH], projectionMatrix, invProjectionMatrix);
+
 		//filter.filter(textureIds[TEX_THICKNESS]);
 	}
 	else if (dImageType == DIMG_SEPERABLE_FILTERED){
-		//filter->setDepthTexture(textureIds[TEX_SMOOTHED_DEPTH_RED]);
 		filter->filter(renderType == RenderTypes::RENDER_CEL || renderType == RenderTypes::RENDER_OUTLINE);
 
-		//filter->setDepthTexture(textureIds[TEX_NORMAL_X]);
-		//filter->filter(false);
-		//filter->setDepthTexture(textureIds[TEX_NORMAL_Y]);
-		//filter->filter(false);
-		//filter->setDepthTexture(textureIds[TEX_NORMAL_Z]);
-		//filter->filter(false);
 	}
 	float elapsedTime = timer1->stop();
 	timer2->start();
@@ -1177,6 +1174,7 @@ keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 		}
 		filter->setBFParam(freq_radius, sigma_s, sigma_r / 255.0f, iterations);
 		filter->setIntensityRange(zNear, zFar);
+		filter_BFGL->setParameters(freq_radius, spriteSize * (sigma_s / 255.0f), sigma_r, iterations, zNear, zFar);
 		return;
 	}
 	else if (mods == GLFW_MOD_ALT){

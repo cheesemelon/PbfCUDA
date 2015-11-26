@@ -122,7 +122,7 @@ ShiftableBilateralFilter::init(int width, int height, float radius, int sigma_r,
 }
 
 void
-ShiftableBilateralFilter::filter() {
+ShiftableBilateralFilter::run() {
 	cudaArray *arr_data = NULL;
 
 	checkCUDA(cudaGraphicsMapResources(1, m_graphicResources),

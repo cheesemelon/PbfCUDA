@@ -35,7 +35,7 @@ public:
 	~ShiftableBilateralFilter();
 	void init(int width, int height, float radius, int sigma_r, float tolerance, unsigned int textureID);
 
-	void filter();
+	void run();
 
 	void setRadius(float radius);
 	void setParam(int sigma_r, float tolerance);

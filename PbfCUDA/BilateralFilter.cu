@@ -9,9 +9,6 @@
 
 #define PI 3.14159265359f
 
-__constant__ float d_Gaussian[512];
-
-texture<float, cudaTextureType2D, cudaReadModeElementType> tex_depth_original;
 texture<float, cudaTextureType2D, cudaReadModeElementType> tex_depth;
 texture<float, cudaTextureType2D, cudaReadModeElementType> tex_dogFiltered;
 surface<void, cudaSurfaceType2D> surf_outline;
@@ -28,9 +25,7 @@ inline __host__ __device__ float gaussian(float x, float sigma){
 	return expf(-(x * x) / (2.0f * sigma * sigma)) / (sqrtf(2.0f * PI) * sigma);
 }
 
-__constant__ int restorePos;
 __constant__ float projectionMatrix_3_2, projectionMatrix_2_2;
-//__constant__ float invProjectionMatrix[4];
 __constant__ float4 invProjectionMatrix[4];
 
 inline __host__ __device__ float4 mat4Mult(float4 *m, float4 v){
@@ -60,7 +55,7 @@ inline __host__ __device__ float backProjection(float P32, float P22, float z_nd
 	return -P32 / (P22 + z_ndc);
 }
 
-__global__ void d_GaussianFilter(float *out, int width, int height, int radius, float sigma_s, float sigma_r){
+__global__ void d_GaussianFilter_1D(float *out, int width, int height, int radius, float sigma_s, float sigma_r, bool vertical){
 	int x = threadIdx.x + blockIdx.x * blockDim.x;
 	int y = threadIdx.y + blockIdx.y * blockDim.y;
 	int offset = x + y * width;
@@ -71,86 +66,6 @@ __global__ void d_GaussianFilter(float *out, int width, int height, int radius, 
 	float center = tex2D(tex_depth, x, y);
 	if (center == 1.0f){
 		out[offset] = 1.0f;
-		return;
-	}
-	float4 center_eye = backProjection(projectionMatrix_3_2, projectionMatrix_2_2, invProjectionMatrix,
-										make_float4(((float)x / (float)width) * 2.0f - 1.0f,
-													((float)y / (float)height) * 2.0f - 1.0f,
-													center * 2.0f - 1.0f,
-													1.0f));
-
-	float sum = 0.0f;
-	float factor = 0.0f;
-	float t = 0.0f;
-	for (int i = -radius; i <= radius; ++i){
-		for (int j = -radius; j <= radius; ++j){
-			float sample = tex2D(tex_depth, x + i, y + j);
-			float4 sample_eye = backProjection(projectionMatrix_3_2, projectionMatrix_2_2, invProjectionMatrix,
-												make_float4(((float)(x + i) / (float)width) * 2.0f - 1.0f,
-															((float)(y + i) / (float)height) * 2.0f - 1.0f,
-															sample * 2.0f - 1.0f,
-															1.0f));
-
-			//if (restorePos){
-				factor = gaussian(center_eye.x - sample_eye.x, center_eye.y - sample_eye.y, sigma_s) * euclideanLength(sample_eye.z, center_eye.z, sigma_r);
-			//}
-			//else{
-			//	factor = gaussian(i, j, sigma_s) * euclideanLength(sample_eye.z, center_eye.z, sigma_r);
-			//}
-
-			t += factor * sample;
-			sum += factor;
-		}
-	}
-
-	out[offset] = t / sum;
-}
-//
-//__global__ void ortho(float *out, int width, int height){
-//	int x = threadIdx.x + blockIdx.x * blockDim.x;
-//	int y = threadIdx.y + blockIdx.y * blockDim.y;
-//	int offset = x + y * width;
-//	if (offset >= width * height){
-//		return;
-//	}
-//
-//	float center = tex2D(tex_depth, x, y);
-//	float4 center_eye = backProjection(make_float4(((float)x / (float)width) * 2.0f - 1.0f,
-//													((float)y / (float)height) * 2.0f - 1.0f,
-//													center * 2.0f - 1.0f,
-//													1.0f));
-//
-//	float4 frustum = backProjection(make_float4(1, 1, 1, 1));
-//
-//	float center_ndc_x = center_eye.x / frustum.x;
-//	center_ndc_x = (center_ndc_x + 1.0) * 0.5;
-//	center_ndc_x = center_ndc_x * (float)width;
-//	if (center_ndc_x < 0 || width <= center_ndc_x){
-//		return;
-//	}
-//	float center_ndc_y = center_eye.y / frustum.y;
-//	center_ndc_y = (center_ndc_y + 1.0) * 0.5;
-//	center_ndc_y = center_ndc_y * (float)height;
-//	if (center_ndc_y < 0 || width <= center_ndc_y){
-//		return;
-//	}
-//
-//	int _offset = (int)center_ndc_x + (int)center_ndc_y * width;
-//	out[_offset] = center;
-//}
-
-__global__ void d_GaussianFilter_1D(float *out, float *rweight, int width, int height, int radius, float sigma_s, float sigma_r, bool vertical){
-	int x = threadIdx.x + blockIdx.x * blockDim.x;
-	int y = threadIdx.y + blockIdx.y * blockDim.y;
-	int offset = x + y * width;
-	if (offset >= width * height){
-		return;
-	}
-
-	float center = tex2D(tex_depth, x, y);
-	if (center == 1.0f){
-		out[offset] = 1.0f;
-		//rweight[offset] = backProjection(make_float4(0, 0, 0, 1)).x;
 		return;
 	}
 	float4 center_eye = backProjection(projectionMatrix_3_2, projectionMatrix_2_2, invProjectionMatrix,
@@ -189,20 +104,13 @@ __global__ void d_GaussianFilter_1D(float *out, float *rweight, int width, int h
 		else{
 			_i = center_eye.x - sample_eye.x;
 		}
-		//if (restorePos){
-			factor = gaussian(_i, sigma_s) * euclideanLength(sample_eye.z, center_eye.z, sigma_r);
-		//}
-		//else{
-		//	factor = gaussian(i, sigma_s) * euclideanLength(sample_eye.z, center_eye.z, sigma_r);
-		//	//factor = d_Gaussian[i + radius] * euclideanLength(sample, center, sigma_r);
-		//}
 
+		factor = gaussian(_i, sigma_s) * euclideanLength(sample_eye.z, center_eye.z, sigma_r);
 		t += factor * sample;
 		sum += factor;
 	}
 
 	out[offset] = t / sum;
-	//rweight[offset] = viewFrustumWidth;
 }
 
 __global__ void d_DOGFilter(float *out, int width, int height, int radius, float sigma1, float sigma2){
@@ -284,62 +192,6 @@ __global__ void d_detectZeroCrossing(int width, int height){
 	surf2Dwrite(res, surf_outline, x, y, cudaBoundaryModeClamp);
 }
 
-//__global__ void d_findMaxValue(float *out, int width, int height){
-//	int x = threadIdx.x + blockIdx.x * blockDim.x;
-//	int y = threadIdx.y + blockIdx.y * blockDim.y;
-//	int offset = x + y * width;
-//	if (offset > width * height){
-//		return;
-//	}
-//
-//	__shared__ float sdata[16 * 16];
-//	unsigned int tid = threadIdx.x + blockDim.x * threadIdx.y;
-//	//sdata[tid] = tex2D(tex_depth, x, y);
-//	sdata[tid] = getEyePos(tex2D(tex_depth, x, y));
-//	__syncthreads();
-//
-//	for (unsigned int s = 1; s < blockDim.x * blockDim.y; s *= 2){
-//		if (tid % (2 * s) == 0){
-//			//float _max = fmaxf(sdata[tid], sdata[tid + s]);
-//			//if (_max == 1.0f){
-//			//	sdata[tid] = fminf(sdata[tid], sdata[tid + s]);
-//			//}
-//			//else{
-//			//	sdata[tid] = _max;
-//			//}
-//
-//			sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]);
-//		}
-//		__syncthreads();
-//	}
-//
-//	out[blockIdx.x + gridDim.x * blockIdx.y] = sdata[0];
-//}
-//
-//__global__ void d_findMinValue(float *out, int width, int height){
-//	int x = threadIdx.x + blockIdx.x * blockDim.x;
-//	int y = threadIdx.y + blockIdx.y * blockDim.y;
-//	int offset = x + y * width;
-//	if (offset > width * height){
-//		return;
-//	}
-//
-//	__shared__ float sdata[16 * 16];
-//	unsigned int tid = threadIdx.x + blockDim.x * threadIdx.y;
-//	//sdata[tid] = tex2D(tex_depth, x, y);
-//	sdata[tid] = getEyePos(tex2D(tex_depth, x, y));
-//	__syncthreads();
-//
-//	for (unsigned int s = 1; s < blockDim.x * blockDim.y; s *= 2){
-//		if (tid % (2 * s) == 0){
-//			sdata[tid] = fminf(sdata[tid], sdata[tid + s]);
-//		}
-//		__syncthreads();
-//	}
-//
-//	out[blockIdx.x + gridDim.x * blockIdx.y] = sdata[0];
-//}
-
 __global__ void d_scaling(float *data, float min, float max, int bound){
 	int offset = threadIdx.x + blockIdx.x * blockDim.x;
 	if (offset > bound){
@@ -347,33 +199,6 @@ __global__ void d_scaling(float *data, float min, float max, int bound){
 	}
 
 	data[offset] = (data[offset] - min) / (max - min);
-}
-
-__global__ void test(float *canvas, int width, int height){
-	int x = threadIdx.x + blockIdx.x * blockDim.x;
-	int y = threadIdx.y + blockIdx.y * blockDim.y;
-	int offset = x + y * width;
-	if (offset > width * height){
-		return;
-	}
-
-	if (offset < 2048){
-		canvas[offset] = 0.0f;
-	}
-	else{
-		canvas[offset] = tex2D(tex_depth, x, y);
-	}
-}
-
-__global__ void avg(float *canvas1, float *canvas2, int width, int height){
-	int x = threadIdx.x + blockIdx.x * blockDim.x;
-	int y = threadIdx.y + blockIdx.y * blockDim.y;
-	int offset = x + y * width;
-	if (offset > width * height){
-		return;
-	}
-
-	canvas1[offset] = (canvas1[offset] + canvas2[offset]) / 2;
 }
 
 BilateralFilter::BilateralFilter(int width, int height,
@@ -438,41 +263,6 @@ BilateralFilter::filter(bool renderOutline){
 	tex_depth.addressMode[0] = cudaAddressModeMirror;
 	tex_depth.addressMode[1] = cudaAddressModeMirror;
 
-	float *depth_original;
-	cudaMalloc((void **)&depth_original, sizeof(float) * m_width * m_height);
-	cudaMemcpyFromArray(depth_original, arr_depth, 0, 0, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice);
-	cudaBindTexture2D(0, tex_depth_original, depth_original, desc, m_width, m_height, sizeof(float) * m_width);
-
-	cudaMemcpyToSymbol(restorePos, &m_restorePos, sizeof(int));
-	//std::cout << m_intensityRange << " " << m_bf_sigma_r << std::endl;
-
-	//test << < m_grids2D, m_threads2D >> > (m_dev_canvas, m_width, m_height);
-	//checkCUDA(cudaGetLastError());
-	//checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, m_dev_canvas, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice));
-
-	//FIXME TEMP
-	//float *dev_max;
-	//cudaMalloc(&dev_max, m_grids2D.x * m_grids2D.y * sizeof(float));
-	//cudaMemset(dev_max, 0, m_grids2D.x * m_grids2D.y * sizeof(float));
-	//d_findMaxValue << <m_grids2D, m_threads2D >> >(dev_max, m_width, m_height);
-	//std::vector<float> max(m_grids2D.x * m_grids2D.y);
-	//cudaMemcpy(max.data(), dev_max, m_grids2D.x * m_grids2D.y * sizeof(float), cudaMemcpyDeviceToHost);
-	//float maxv = -99999.0f;
-	//for (auto &v : max){
-	//	if (maxv < v){
-	//		maxv = v;
-	//	}
-	//}
-	//d_findMinValue << < m_grids2D, m_threads2D >> > (dev_max, m_width, m_height);
-	//cudaMemcpy(max.data(), dev_max, m_grids2D.x * m_grids2D.y * sizeof(float), cudaMemcpyDeviceToHost);
-	//float minv = 999999.0f;
-	//for (auto &v : max){
-	//	if (minv > v){
-	//		minv = v;
-	//	}
-	//}
-	//std::cout << maxv << " " << minv << std::endl;
-
 	if (renderOutline){
 		checkCUDA(cudaBindTexture2D(0, tex_dogFiltered, m_dev_canvas, desc, m_width, m_height, sizeof(float) * m_width),
 			"Binding dog filtered data to texture memory.");
@@ -493,21 +283,8 @@ BilateralFilter::filter(bool renderOutline){
 		checkCUDA(cudaUnbindTexture(tex_dogFiltered), "Unbinding texture memory for dog filtered data.");
 	}
 
-	//cudaMemcpyFromArray(m_dev_canvas, arr_depth, 0, 0, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice);
-	//d_scaling <<< m_grids1D, m_threads1D>>>(m_dev_canvas, minv, maxv, m_width * m_height);
-	//cudaMemcpyToArray(arr_depth, 0, 0, m_dev_canvas, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice);
-
-
-
-	//std::cout << "RESTORE POS : " << m_restorePos << " sigma r : " << m_bf_sigma_r << std::endl;
-
-	float *dev_rweight;
-	cudaMalloc(&dev_rweight, m_width * m_height * sizeof(float));
-	
 	for (auto &Gaussian : m_bf_Gaussians){
 		int radius = (Gaussian.size() >> 1);
-		//checkCUDA(cudaMemcpyToSymbol(d_Gaussian, Gaussian.data(), sizeof(float) * Gaussian.size()),
-		//	"Memcpy to Gaussian symbol for bilateral filter.");
 
 		d_GaussianFilter_1D << < m_grids2D, m_threads2D >> > (m_dev_canvas, dev_rweight, m_width, m_height, radius, m_bf_sigma_s, m_bf_sigma_r, true);
 		checkCUDA(cudaGetLastError(), "Kernel function error : GaussianFilter_Y.");
@@ -519,61 +296,7 @@ BilateralFilter::filter(bool renderOutline){
 		checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, m_dev_canvas, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
 			"Memcpy to arr_depth(texture memory)");
 	}
-
-	//if (m_restorePos){
-	//	checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, depth_original, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
-	//		"Memcpy to arr_depth(texture memory)");
-
-	//	for (auto &Gaussian : m_bf_Gaussians){
-	//		int radius = (Gaussian.size() >> 1);
-
-	//		d_GaussianFilter_1D << < m_grids2D, m_threads2D >> > (dev_rweight, dev_rweight, m_width, m_height, radius, m_bf_sigma_s, m_bf_sigma_r, false);
-	//		checkCUDA(cudaGetLastError(), "Kernel function error : GaussianFilter_Y.");
-	//		checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, dev_rweight, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
-	//			"Memcpy to arr_depth(texture memory)");
-
-	//		d_GaussianFilter_1D << < m_grids2D, m_threads2D >> > (dev_rweight, dev_rweight, m_width, m_height, radius, m_bf_sigma_s, m_bf_sigma_r, true);
-	//		checkCUDA(cudaGetLastError(), "Kernel function error : GaussianFilter_X.");
-	//		checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, dev_rweight, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
-	//			"Memcpy to arr_depth(texture memory)");
-	//	}
-
-	//	avg << < m_grids2D, m_threads2D >> > (m_dev_canvas, dev_rweight, m_width, m_height);
-	//	checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, m_dev_canvas, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
-	//		"Memcpy to arr_depth(texture memory)");
-	//}
-
-	//if (m_restorePos){
-	//	d_GaussianFilter << < m_grids2D, m_threads2D >> > (m_dev_canvas, m_width, m_height, 20, m_bf_sigma_s, m_bf_sigma_r);
-	//	checkCUDA(cudaGetLastError(), "Kernel function error : GaussianFilter_X.");
-	//	checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, m_dev_canvas, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
-	//		"Memcpy to arr_depth(texture memory)");
-	//}
-
-	//cudaMemcpy(m_dev_canvas, std::vector<float>(m_width * m_height, 1.0f).data(), sizeof(float) *m_width * m_height, cudaMemcpyHostToDevice);
-	//ortho << < m_grids2D, m_threads2D >> > (m_dev_canvas, m_width, m_height);
-	//	checkCUDA(cudaGetLastError(), "Kernel function error : GaussianFilter_Y.");
-	//	checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, m_dev_canvas, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
-	//		"Memcpy to arr_depth(texture memory)");
 	checkCUDA(cudaUnbindTexture(tex_depth), "Unbinding texture memory for arr_depth");
-	
-	//std::vector<float> temp(m_width * m_height);
-	//cudaMemcpy(temp.data(), dev_rweight, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToHost);
-	//float min = 0, max = 0;
-	//for (int i = 0; i < m_width * m_height; ++i){
-	//	if (temp[i] < min){
-	//		min = temp[i];
-	//	}
-	//	if (temp[i] > max){
-	//		max = temp[i];
-	//	}
-	//}
-	//cout << "min : " << min << ", max : " << max << endl;
-	cudaFree(dev_rweight);
-
-	cudaUnbindTexture(tex_depth_original);
-	cudaFree(depth_original);
-
 	checkCUDA(cudaGraphicsUnmapResources(2, m_graphicResources),
 		"Error : Unmapping graphic resources");
 }
@@ -655,15 +378,11 @@ BilateralFilter::filterThickness() {
 		"Error : Unmapping graphic resources");
 } 
 
-void BilateralFilter::setProjectionMatrix(glm::mat4 matrix){
-	checkCUDA(cudaMemcpyToSymbol(projectionMatrix_3_2, &(matrix[3][2]), sizeof(float)),
+void BilateralFilter::setMatrix(const glm::mat4 &P, const glm::mat4 &invP){
+	checkCUDA(cudaMemcpyToSymbol(projectionMatrix_3_2, &(P[3][2]), sizeof(float)),
 		"Memcpy to projmat32 for bilateral filter.");
-	checkCUDA(cudaMemcpyToSymbol(projectionMatrix_2_2, &(matrix[2][2]), sizeof(float)),
+	checkCUDA(cudaMemcpyToSymbol(projectionMatrix_2_2, &(P[2][2]), sizeof(float)),
 		"Memcpy to projmat22 for bilateral filter.");
-
-	glm::mat4 inv = glm::inverse(matrix);
-	checkCUDA(cudaMemcpyToSymbol(invProjectionMatrix, &inv, sizeof(glm::mat4)),
+	checkCUDA(cudaMemcpyToSymbol(invProjectionMatrix, &invP, sizeof(glm::mat4)),
 		"Memcpy to invprojmat for bilateral filter.");
-
-	m_P = matrix;
 }
