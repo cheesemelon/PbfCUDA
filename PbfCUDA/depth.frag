@@ -15,10 +15,6 @@ layout(location = 0) out vec4	fragColor;
 layout(location = 1) out float	thickness;
 layout(location = 2) out float	smoothed_depth;
 
-layout(location = 4) out float normal_x;
-layout(location = 5) out float normal_y;
-layout(location = 6) out float normal_z;
-
 void
 main(void)
 {
@@ -30,11 +26,6 @@ main(void)
 	float z = sqrt(1.0 - r_pow);
 	vec3 sphereSurfacePos = vec3(p.x, p.y, z) + x_e.xyz;
 
-	vec3 n = normalize(vec3(p, z));
-	normal_x = n.x;
-	normal_y = n.y;
-	normal_z = n.z;
-	
 	// projection matrix * vertices(eye space coord)
 	vec4 clipSpacePos = P * vec4(sphereSurfacePos, 1.0);
 

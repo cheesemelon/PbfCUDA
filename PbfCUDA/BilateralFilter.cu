@@ -124,8 +124,8 @@ __global__ void d_DOGFilter(float *out, int width, int height, int radius, float
 	// Cross filtering
 	float sum = 0.0f;
 	for (int i = -radius; i <= radius; ++i){
-		sum += d_Gaussian[i + radius] * tex2D(tex_depth, x + i, y);
-		sum += d_Gaussian[i + radius] * tex2D(tex_depth, x, y + i);
+		sum += gaussian(i + radius, sigma1) * tex2D(tex_depth, x + i, y);
+		sum += gaussian(i + radius, sigma2) * tex2D(tex_depth, x, y + i);
 	}
 	out[offset] = sum / ((2 * radius + 1) + (2 * radius));
 
@@ -202,7 +202,7 @@ __global__ void d_scaling(float *data, float min, float max, int bound){
 }
 
 BilateralFilter::BilateralFilter(int width, int height,
-	GLuint depthTexID, int bf_radius, int bf_sigma_s, float bf_sigma_r, int bf_nIterations,
+	GLuint depthTexID, int bf_radius, float bf_sigma_s, float bf_sigma_r, int bf_nIterations,
 	GLuint outlineTexID, int dog_radius, int dog_sigma, float dog_similarity,
 	GLuint thicknessTexID)
 	: m_dev_canvas(NULL),
@@ -260,41 +260,42 @@ BilateralFilter::filter(bool renderOutline){
 	cudaChannelFormatDesc desc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
 	checkCUDA(cudaBindTextureToArray(tex_depth, arr_depth, desc),
 		"Binding arr_depth to texture memory.");
-	tex_depth.addressMode[0] = cudaAddressModeMirror;
+	// This address mode(including wrap) does not work, because texture memory bounded to 1D array memory.
+	tex_depth.addressMode[0] = cudaAddressModeMirror; 
 	tex_depth.addressMode[1] = cudaAddressModeMirror;
 
-	if (renderOutline){
-		checkCUDA(cudaBindTexture2D(0, tex_dogFiltered, m_dev_canvas, desc, m_width, m_height, sizeof(float) * m_width),
-			"Binding dog filtered data to texture memory.");
-		tex_dogFiltered.addressMode[0] = cudaAddressModeMirror;
-		tex_dogFiltered.addressMode[1] = cudaAddressModeMirror;
 
-		desc = cudaCreateChannelDesc(8, 0, 0, 0, cudaChannelFormatKindUnsigned);
-		checkCUDA(cudaBindSurfaceToArray(surf_outline, arr_outline, desc),
-			"Binding arr_outline to surface memory.");
+	//if (renderOutline){
+	//	checkCUDA(cudaBindTexture2D(0, tex_dogFiltered, m_dev_canvas, desc, m_width, m_height, sizeof(float) * m_width),
+	//		"Binding dog filtered data to texture memory.");
+	//	tex_dogFiltered.addressMode[0] = cudaAddressModeMirror;
+	//	tex_dogFiltered.addressMode[1] = cudaAddressModeMirror;
 
-		checkCUDA(cudaMemcpyToSymbol(d_Gaussian, m_dog_Gaussian.data(), sizeof(float) * m_dog_Gaussian.size()),
-			"Memcpy to Gaussian symbol for dog filter.");
-		d_DOGFilter << < m_grids2D, m_threads2D >> > (m_dev_canvas, m_width, m_height, m_dog_radius, static_cast<float>(m_dog_sigma), m_dog_similarity * static_cast<float>(m_dog_sigma));
-		checkCUDA(cudaGetLastError(), "Kernel function error : DOGFilter.");
-		d_detectZeroCrossing << < m_grids2D, m_threads2D >> > (m_width, m_height);
-		checkCUDA(cudaGetLastError(), "Kernel function error : ExtractZeroCrossing.");
+	//	desc = cudaCreateChannelDesc(8, 0, 0, 0, cudaChannelFormatKindUnsigned);
+	//	checkCUDA(cudaBindSurfaceToArray(surf_outline, arr_outline, desc),
+	//		"Binding arr_outline to surface memory.");
 
-		checkCUDA(cudaUnbindTexture(tex_dogFiltered), "Unbinding texture memory for dog filtered data.");
-	}
+	//	d_DOGFilter << < m_grids2D, m_threads2D >> > (m_dev_canvas, m_width, m_height, m_dog_radius, static_cast<float>(m_dog_sigma), m_dog_similarity * static_cast<float>(m_dog_sigma));
+	//	checkCUDA(cudaGetLastError(), "Kernel function error : DOGFilter.");
+	//	d_detectZeroCrossing << < m_grids2D, m_threads2D >> > (m_width, m_height);
+	//	checkCUDA(cudaGetLastError(), "Kernel function error : ExtractZeroCrossing.");
 
-	for (auto &Gaussian : m_bf_Gaussians){
-		int radius = (Gaussian.size() >> 1);
+	//	checkCUDA(cudaUnbindTexture(tex_dogFiltered), "Unbinding texture memory for dog filtered data.");
+	//}
 
-		d_GaussianFilter_1D << < m_grids2D, m_threads2D >> > (m_dev_canvas, dev_rweight, m_width, m_height, radius, m_bf_sigma_s, m_bf_sigma_r, true);
+	int radius = m_bf_radius;
+	for (int i = 0; i < m_bf_nIterations; ++i){
+		d_GaussianFilter_1D << < m_grids2D, m_threads2D >> > (m_dev_canvas, m_width, m_height, radius, m_bf_sigma_s, m_bf_sigma_r, true);
 		checkCUDA(cudaGetLastError(), "Kernel function error : GaussianFilter_Y.");
 		checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, m_dev_canvas, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
 			"Memcpy to arr_depth(texture memory)");
 
-		d_GaussianFilter_1D << < m_grids2D, m_threads2D >> > (m_dev_canvas, dev_rweight, m_width, m_height, radius, m_bf_sigma_s, m_bf_sigma_r, false);
+		d_GaussianFilter_1D << < m_grids2D, m_threads2D >> > (m_dev_canvas, m_width, m_height, radius, m_bf_sigma_s, m_bf_sigma_r, false);
 		checkCUDA(cudaGetLastError(), "Kernel function error : GaussianFilter_X.");
 		checkCUDA(cudaMemcpyToArray(arr_depth, 0, 0, m_dev_canvas, sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice),
 			"Memcpy to arr_depth(texture memory)");
+
+		radius = (radius >> 1);
 	}
 	checkCUDA(cudaUnbindTexture(tex_depth), "Unbinding texture memory for arr_depth");
 	checkCUDA(cudaGraphicsUnmapResources(2, m_graphicResources),
@@ -302,24 +303,26 @@ BilateralFilter::filter(bool renderOutline){
 }
 
 void
-BilateralFilter::setBFParam(int radius, int sigma_s, float sigma_r, int nIterations) {
+BilateralFilter::setBFParam(int radius, float sigma_s, float sigma_r, int nIterations) {
 	m_bf_radius = radius;
 	m_bf_sigma_s = sigma_s;
 	m_bf_sigma_r = sigma_r;
 	m_bf_nIterations = nIterations;
 
-	m_bf_Gaussians.clear();
-	for (int i = 0; i < nIterations; ++i){
-		std::vector<float> Gaussian;
-		for (int i = 0; i < 2 * radius + 1; ++i){
-			Gaussian.push_back(gaussian(i - radius, sigma_s));
-		}
-		m_bf_Gaussians.push_back(Gaussian);
-		radius >>= 1;
-		if (radius == 0){
-			break;
-		}
-	}
+	//m_bf_Gaussians.clear();
+	//for (int i = 0; i < nIterations; ++i){
+	//	std::vector<float> Gaussian;
+	//	for (int i = 0; i < 2 * radius + 1; ++i){
+	//		Gaussian.push_back(gaussian(i - radius, sigma_s));
+	//	}
+	//	m_bf_Gaussians.push_back(Gaussian);
+	//	radius >>= 1;
+	//	if (radius == 0){
+	//		break;
+	//	}
+	//}
+
+	printf("BFCU r : %d, sigma_s : %.2f, sigma_r : %.2f\n", m_bf_radius, m_bf_sigma_s, m_bf_sigma_r);
 }
 
 void

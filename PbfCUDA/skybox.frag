@@ -1,11 +1,11 @@
-#version 330 core
+#version 430 core
 
-in vec3 UV;
+in vec3 texCoord;
 
 out vec4 FragColor;
 
-uniform samplerCube tex;
+layout(binding = 0) uniform samplerCube tex_cubemap;
 
 void main(){
-	FragColor = texture(tex, UV);
+	FragColor = texture(tex_cubemap, texCoord);
 }

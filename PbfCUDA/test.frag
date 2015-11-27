@@ -15,9 +15,6 @@ layout(binding = 1) uniform sampler2D tex02;
 layout(binding = 2) uniform sampler1D diffuseWrap;
 layout(binding = 3) uniform sampler2D outlineTexture;
 layout(binding = 4) uniform samplerCube cubemapTexture;
-layout(binding = 5) uniform sampler2D tex_normal_x;
-layout(binding = 6) uniform sampler2D tex_normal_y;
-layout(binding = 7) uniform sampler2D tex_normal_z;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -201,8 +198,15 @@ void main()
 	}
 	else if(renderType == 5) 
 	{
+		//vec3 p = vec3((texCoord - 0.5) * 0.5, depth);
+		vec3 p = vec3(texCoord, -depth) * 2.0 - 1.0;
+		vec3 incident = normalize(p - v);
+		vec3 reflection = texture(cubemapTexture, reflect(incident, n)).rgb;
+		vec3 refraction = texture(cubemapTexture, refract(incident, n, 1.0)).rgb;
+
 		// outline
-		fragColor = vec4(1, 0, 0, 1) * vec4(texture(outlineTexture, texCoord).r);
+		//fragColor = vec4(1, 0, 0, 1) * vec4(texture(outlineTexture, texCoord).r);
+		fragColor = vec4(refraction, 1.0);
 	}
 	else{
 		// cel shading
