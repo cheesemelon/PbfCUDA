@@ -23,7 +23,7 @@ float euclideanLength(float a, float b){
 	return exp(-((a - b) * (a - b)) / (2.0 * sigma_r * sigma_r));
 }
 
-vec4 backProjection(vec4 p_ndc){
+vec4 backProjection(in vec4 p_ndc){
 	float w_c = P32 / (P22 + p_ndc.z);
 	vec4 p_clip = w_c * p_ndc;
 	return invP * p_clip;

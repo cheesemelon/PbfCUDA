@@ -21,7 +21,7 @@ protected:
 		: m_width(width), m_height(height),
 		m_radius(radius), m_sigma_s(sigma_s), m_sigma_r(sigma_r), m_nIterations(nIterations)
 	{
-		m_shader = Shader::create(ShaderUnit::createWithFile(GL_COMPUTE_SHADER, "BilateralFilter.frag"));
+		m_shader = Shader::create(ShaderUnit::createWithFile(GL_COMPUTE_SHADER, "BilateralFilter.comp.glsl"));
 		glUseProgram(m_shader->getID());
 		glUniform1i(m_shader->getUniformLocation("width"), m_width);
 		glUniform1i(m_shader->getUniformLocation("height"), m_height);

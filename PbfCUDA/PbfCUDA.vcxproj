@@ -31,7 +31,8 @@
     <ClInclude Include="Shader.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="BilateralFilter.frag" />
+    <None Include="BilateralFilter.comp.glsl" />
+    <None Include="ClassDiagram.cd" />
     <None Include="depth.frag" />
     <None Include="depth.vert" />
     <None Include="skybox.frag" />

@@ -62,7 +62,8 @@
     <None Include="skybox.frag">
       <Filter>Source Codes</Filter>
     </None>
-    <None Include="BilateralFilter.frag">
+    <None Include="ClassDiagram.cd" />
+    <None Include="BilateralFilter.comp.glsl">
       <Filter>Source Codes</Filter>
     </None>
   </ItemGroup>

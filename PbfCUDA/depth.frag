@@ -11,9 +11,7 @@ in vec4 x_e;
 //in mat4 T;
 //in mat4 M;
 
-layout(location = 0) out vec4	fragColor;
-layout(location = 1) out float	thickness;
-layout(location = 2) out float	smoothed_depth;
+layout(location = 0) out float	smoothed_depth;
 
 void
 main(void)
@@ -32,14 +30,9 @@ main(void)
 	// clip space coord to ndc(normalized device coord), and map the depth range [-1,1] to [0,1]
 	float surfaceDepth = 0.5 * (clipSpacePos.z/clipSpacePos.w + 1.0);	
 
-//	fragColor = vec4(0.0, 0.0, 0.0, 1.0);
-	fragColor = vec4(surfaceDepth, surfaceDepth, surfaceDepth, 0.05);
-	thickness = 0.0;
-	//fragColor = (vec4(surfaceDepth, surfaceDepth, surfaceDepth, 1.0) + vec4(alpha, alpha, alpha, 1.0)) * 0.5;
-
 	gl_FragDepth = surfaceDepth;
-	//smoothed_depth = surfaceDepth * 255.0;
 	smoothed_depth = surfaceDepth;
+	//thickness = 0.0;
 }
 
 

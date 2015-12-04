@@ -2,10 +2,16 @@
 
 uniform float alpha;
 uniform vec2 viewport;
+uniform float P32, P22;
+uniform float intensityRange;
 
 layout(binding = 0) uniform sampler2D tex_depth;
 
-layout(location = 1) out float thickness;
+layout(location = 0) out float thickness;
+
+float backProjection(in float z_ndc){
+	return -P32 / (P22 + z_ndc);
+}
 
 void main(void)
 {
@@ -14,11 +20,13 @@ void main(void)
 
 	if(sqrt(r_pow) > 1.0)	discard;
 
-	vec2 texcoord = vec2((gl_FragCoord.x - 0.5) / viewport.x, (gl_FragCoord.y - 0.5) / viewport.y);
-	if(alpha == 1.0){
-		thickness = 0.05 * (1.0 - texture(tex_depth, texcoord).x);
-	}
-	else{
+	float depth = texture(tex_depth, vec2(gl_FragCoord.x / viewport.x, gl_FragCoord.y / viewport.y)).x;
+	depth = 1.0 - (backProjection(depth) / intensityRange);
+	//if(alpha == 1.0){
+		//thickness = 0.05 * depth;
 		thickness = 0.05;
-	}
+	//}
+	//else{
+	//	thickness = 0.05;
+	//}
 }
