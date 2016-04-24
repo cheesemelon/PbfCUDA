@@ -943,6 +943,23 @@ inline __host__ __device__ void operator*=(uint4 &a, uint b)
     a.w *= b;
 }
 
+inline __host__ __device__ float4 operator * (float4 *m, float4 v)
+{
+	//float4 Mov0 = make_float4(v.x);
+	//float4 Mov1 = make_float4(v.y);
+	//float4 Mul0 = m[0] * Mov0;
+	//float4 Mul1 = m[1] * Mov1;
+	//float4 Add0 = Mul0 + Mul1;
+	//float4 Mov2 = make_float4(v.z);
+	//float4 Mov3 = make_float4(v.w);
+	//float4 Mul2 = m[2] * Mov2;
+	//float4 Mul3 = m[3] * Mov3;
+	//float4 Add1 = Mul2 + Mul3;
+	//return Add0 + Add1;
+
+	return m[0] * make_float4(v.x) + m[1] * make_float4(v.y) + m[2] * make_float4(v.z) + m[3] * make_float4(v.w);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // divide
 ////////////////////////////////////////////////////////////////////////////////
@@ -1442,4 +1459,26 @@ inline __device__ __host__ float4 smoothstep(float4 a, float4 b, float4 x)
 {
     float4 y = clamp((x - a) / (b - a), 0.0f, 1.0f);
     return (y*y*(make_float4(3.0f) - (make_float4(2.0f)*y)));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// CUDA / CUFFT check functions
+
+#include <iostream>
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <cufft.h>
+
+inline void checkCUDA(cudaError_t e, const char *message = ""){
+	if (e != CUDA_SUCCESS){
+		std::cerr << cudaGetErrorName(e) << ". " << message << std::endl;
+		exit(EXIT_FAILURE);
+	}
+}
+
+inline void checkCUFFT(cufftResult_t e, const char *message = ""){
+	if (e != CUFFT_SUCCESS){
+		std::cerr << message << std::endl;
+		exit(EXIT_FAILURE);
+	}
 }

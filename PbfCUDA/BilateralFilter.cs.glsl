@@ -4,15 +4,17 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-uniform float P32, P22;
-uniform mat4 invP;
+uniform float P32, P22;			// Projection matrix componet [3][2], [2][2].
+uniform mat4 invP;				// Inverse projection matrix.
 uniform int width, height;
-uniform int radius;
+uniform int radius;				// Kernel radius.
 uniform float sigma_s, sigma_r;
-uniform int vertical;
+uniform int vertical;			// boolean to check that filter runs vertically.
+
+uniform int depthCorrection;	// boolean for depth correction.
+uniform int filter_3D;			// boolean for 3D filtering.
 
 layout(binding = 0) uniform sampler2D tex_depth;
-//layout(binding = 0, r32f) readonly uniform image2D tex_depth;
 layout(binding = 1, r32f) writeonly uniform image2D tex_out;
 
 float gaussian(float x){
@@ -29,17 +31,20 @@ vec4 backProjection(in vec4 p_ndc){
 	return invP * p_clip;
 }
 
+//@ Get image space coordinates from window coordinates. range in [0.0, 1.0]
 vec2 texCoord(in ivec2 imageCoord){
 	return (vec2(imageCoord) + vec2(0.5)) / vec2(width, height);
 }
 
 void main() {
+	// Calc thread ID(index).
 	ivec2 imageCoord = ivec2(gl_GlobalInvocationID.xy);
 	if(imageCoord.x >= width || imageCoord.y >= height){
 		return;
 	}
+
+	// Get center(current) value.
 	float center = texture(tex_depth, texCoord(imageCoord)).r;
-	//float center = imageLoad(tex_depth, imageCoord).r;
 	if(center == 1.0){
 		imageStore(tex_out, imageCoord, vec4(1.0, 0.0, 0.0, 0.0));
 		return;
@@ -47,10 +52,12 @@ void main() {
 	vec4 center_ndc = vec4(vec3(texCoord(imageCoord), center) * 2.0 - 1.0, 1.0);
 	vec4 center_eye = backProjection(center_ndc);
 
+	// Run filter.
 	float sum = 0.0;
 	float factor = 0.0;
 	float t = 0.0;
 	for (int offset = -radius; offset <= radius; ++offset){
+		// Calc sample index.
 		ivec2 sampleCoord;
 		if(vertical == 1){
 			sampleCoord = imageCoord + ivec2(0, offset);
@@ -59,8 +66,8 @@ void main() {
 			sampleCoord = imageCoord + ivec2(offset, 0);
 		}
 
+		// Get sample value.
 		float _sample = texture(tex_depth, texCoord(sampleCoord)).r;
-		//float _sample = imageLoad(tex_depth, sampleCoord).r;
 		if(_sample == 1.0){
 			continue;
 		}
@@ -74,12 +81,31 @@ void main() {
 		else{
 			_offset = center_eye.x - sample_eye.x;
 		}
-		//factor = gaussian(offset) * euclideanLength(_sample, center);
-		factor = gaussian(_offset) * euclideanLength(sample_eye.z, center_eye.z);
 
+		// Calc spatial weight
+		float s_factor;
+		if (filter_3D == 1){
+			s_factor = gaussian(_offset);
+		}
+		else{
+			s_factor = gaussian(offset);
+		}
+
+		// Calc range weight
+		float r_factor;
+		if (depthCorrection == 1){
+			r_factor = euclideanLength(sample_eye.z, center_eye.z);
+		}
+		else{
+			r_factor = euclideanLength(_sample, center);
+		}
+		factor = s_factor * r_factor;
+
+		//factor = gaussian(_offset) * euclideanLength(sample_eye.z, center_eye.z);
 		t += factor * _sample;
 		sum += factor;
 	}
 
+	// Normalize and write the result.
 	imageStore(tex_out, imageCoord, vec4(t / sum, 0.0, 0.0, 0.0));
 }

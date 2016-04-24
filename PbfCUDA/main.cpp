@@ -1,3 +1,4 @@
+
 #include <iostream>
 #include <algorithm>
 #include <ctime>
@@ -5,16 +6,11 @@
 
 #include "shaderBasics.h"
 #include "PBFSystem2D.cuh"
-#include "BilateralFilter.cuh"
-#include "SFBF.cuh"
-#include "temp.h"
 #include "Font.h"
-#include "BFGL.h"
+#include "FrameRate.h"
+#include "BilateralFilterGL.h"
+#include "LowpassFilter.cuh"
 
-// temp
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <cuda_gl_interop.h>
 ///////////////////
 
 using namespace std;
@@ -47,25 +43,16 @@ float 	scale = 1.5;
 
 float	spriteSize = 0;
 
-//@ Filter
-float	freq_radius = 10.0f;
-int		sigma_r_SFBF = 40;
-int		sigma_r = 5;
-int		sigma_s = 5;
-int		iterations = 5;
-int		dog_sigma = 1;
-int		dog_radius = 20;
-float		dog_similarity = 0.99f;
-std::vector<GLubyte> texdata_diffuseWrap(256 * 3);
-unsigned int skybox_width, skybox_height;
-std::vector<GLubyte> texdata_skybox[6];
-std::vector<GLfloat> screenshot1, screenshot2;
-BilateralFilter *filter = NULL;
-Font	*font = NULL;
-TimerGPU *timer1, *timer2 = NULL;
-int genNormal = 0;
-int restorePos = 0;
-BFGL *filter_BFGL = NULL;
+// Filter variables
+int		kernel_radius = 10;
+float	sigma_s = 0.02;
+float	sigma_r = 0.1;
+int		filter_iteration = 5;
+BilateralFilterGL	*filter = NULL;
+LowpassFilter		*lowpassFilter = NULL;
+
+Font		*font = NULL;
+FrameRate	*frameRate = NULL;
 
 //@ simulation variables
 float	WORKSPACE_X = 24;	// 24
@@ -81,6 +68,136 @@ bool bDrawDensity	= false;
 
 float	backgroundDarkness = 1;
 bool	debugModeEnabled = false;
+
+glm::vec2 viewport;
+
+// Viewing matrix and vector
+glm::vec3 translation;
+glm::mat4 scaleMatrix;
+glm::mat4 rotationMatrix;
+//glm::mat4 modelMatrix;
+glm::mat4 viewMatrix;
+glm::mat4 projectionMatrix;
+glm::mat4 invProjectionMatrix;
+glm::mat4 MVPMatrix;
+
+// Viewing control
+glm::quat	qX;
+glm::quat	qY;
+glm::quat	qRot;
+
+glm::vec3	curMouseOnTrackBall;
+glm::vec3	preMouseOnTrackBall;
+glm::vec3	curMouseOnPlane;
+glm::vec3	preMouseOnPlane;
+float		trackBallRadius;
+
+float fovy = 45.0f;
+float zNear = 10.0f;
+float zFar = 70.0f;
+//float pplaneWidth	= 0;
+//float pplaneHeight	= 0;
+
+//@ camera x-formations
+float4 mouseStart;
+float4 mouseEnd;
+bool bMouseLeftDown = false;
+bool bMouseRightDown = false;
+
+//@ depth image type
+enum DepthImageTypes
+{
+	DIMG_ORIGINAL = 0,
+	DIMG_BILATERAL_FILTERED,
+
+	NUM_DIMGTYPES
+};
+DepthImageTypes dImageType = DIMG_ORIGINAL;
+
+//@ render type
+enum RenderTypes
+{
+	RENDER_FLAT = 0,
+	RENDER_THICKNESS,
+	RENDER_SHADED,
+	RENDER_TEST,
+	RENDER_TEST_R,
+	RENDER_CEL,
+
+	NUM_RENDERTYPES
+};
+RenderTypes renderType = RENDER_SHADED;
+
+// Rendering
+//
+
+glm::vec3 cameraPos(0.0f, 0.0f, 0.5f*(zFar + zNear));
+glm::vec3 targetPos(0.0f, 0.0f, 0.0f);
+
+//@ textures
+enum Textures
+{
+	TEX_SPHERE = 0,
+	TEX_THICKNESS,
+	TEX_DEPTH,
+	TEX_DIFFUSE_WRAP,
+	TEX_SKYBOX,
+
+	NUM_TEXTURES,
+};
+std::vector<Texture *> textures(NUM_TEXTURES, NULL);
+
+//@ FBOs
+enum FBOS
+{
+	FBO_DEPTH,
+	FBO_FILTER_X,
+	FBO_FILTER_Y,
+
+	NUM_FBOS
+};
+GLuint *pFBOArray = NULL;
+
+//@ VAOs
+enum VAOS
+{
+	VAO_PARTICLE,
+	VAO_CUBE,
+	VAO_AXIS,
+	VAO_FINAL,
+
+	NUM_VAOS
+};
+
+GLuint *pVAOArray = NULL;
+GLuint particleVbo;
+GLuint finalVbo;
+
+//@ quad for rendering
+float2 quadVert[] = {
+	make_float2(-1.0f, -1.0f),
+	make_float2( 1.0f, -1.0f),
+	make_float2( 1.0f,  1.0f),
+	make_float2(-1.0f,  1.0f),
+};
+
+//@ shaders
+enum ShaderType
+{
+	SHDR_DEPTH = 0,
+	SHDR_THICKNESS,
+	SHDR_TEST,
+	SHDR_SKYBOX,
+
+	NUM_SHADERS
+};
+std::vector<Shader *> shaders(NUM_SHADERS, NULL);
+const char *shader_filenames[NUM_SHADERS][2] = {
+	{ "depth.vert", "depth.frag" },
+	{ "thickness.vert", "thickness.frag" },
+	{ "test.vert", "test.frag" },
+	{ "skybox.vert", "skybox.frag" },
+};
 
 // Drop the particles
 void
@@ -111,24 +228,6 @@ main(int argc, char *argv[])
 
 	glfwSetWindowTitle(window, "PBF with CUDA");
 
-	// temp
-	loadRAW("resources/diffuse wrap_spirit of sea.raw", texdata_diffuseWrap, 256, 1);
-	loadImage("Resources/iceflats/iceflats_rt.tga", &texdata_skybox[0], &skybox_width, &skybox_height);
-	loadImage("Resources/iceflats/iceflats_lf.tga", &texdata_skybox[1], &skybox_width, &skybox_height);
-	loadImage("Resources/iceflats/iceflats_up.tga", &texdata_skybox[2], &skybox_width, &skybox_height);
-	loadImage("Resources/iceflats/iceflats_dn.tga", &texdata_skybox[3], &skybox_width, &skybox_height);
-	loadImage("Resources/iceflats/iceflats_ft.tga", &texdata_skybox[4], &skybox_width, &skybox_height);
-	loadImage("Resources/iceflats/iceflats_bk.tga", &texdata_skybox[5], &skybox_width, &skybox_height);
-	//loadImage("Resources/TropicalSunnyDay/TropicalSunnyDayLeft2048.png", &texdata_skybox[0], &skybox_width, &skybox_height);
-	//loadImage("Resources/TropicalSunnyDay/TropicalSunnyDayRight2048.png", &texdata_skybox[1], &skybox_width, &skybox_height);
-	//loadImage("Resources/TropicalSunnyDay/TropicalSunnyDayUp2048.png", &texdata_skybox[2], &skybox_width, &skybox_height);
-	//loadImage("Resources/TropicalSunnyDay/TropicalSunnyDayDown2048.png", &texdata_skybox[3], &skybox_width, &skybox_height);
-	//loadImage("Resources/TropicalSunnyDay/TropicalSunnyDayFront2048.png", &texdata_skybox[4], &skybox_width, &skybox_height);
-	//loadImage("Resources/TropicalSunnyDay/TropicalSunnyDayBack2048.png", &texdata_skybox[5], &skybox_width, &skybox_height);
-	for (int i = 0; i < 6; ++i){
-		flipImageVertical(&texdata_skybox[i], skybox_width, skybox_height, GL_BGR);
-	}
-
 	reshapeWindow(window, screenW, screenH);
 	reshapeFramebuffer(window, windowW, windowH);
 
@@ -140,8 +239,9 @@ main(int argc, char *argv[])
 	pSystem->initParticleSystem(param);
 
 	// Initialize the rendering pipeline
-	font = new Font();
 	initRenderingPipeline();
+
+	frameRate = FrameRate::create();
 
 	// Drop the particles
 	DamBreaking();
@@ -156,101 +256,38 @@ main(int argc, char *argv[])
 	glfwSetMouseButtonCallback(window, mouseButton);
 	glfwSetCursorPosCallback(window, mouseMotion);
 
-	// Time
-	double	t = 0, t_old = 0;
-
-	const int	NUM_HISTORY = 30;
-
-	double	history[NUM_HISTORY];
-	int		index = 0;
-	for (int i = 0; i < NUM_HISTORY; i++)
-			history[i] = 0;
-	double descrete_fps = 0.0;
-
-	glfwSetTime(t);
-
 	// Main loop
 	while (!glfwWindowShouldClose(window))
 	{
+		// Record elapsed time.
+		frameRate->elapse();
+
 		// Window title with the current number of particles
 		char winTitle[256] = {0,};
-		sprintf(winTitle, "PBF with %d particles", pSystem->numParticles );
-
-		//if (1)
-		//{
-			t = glfwGetTime();
-			double	dt = t - t_old;
-			t_old = t;
-
-			int	num_elapsed = min(index + 1, NUM_HISTORY);
-			history[index % NUM_HISTORY] = dt * 1000;
-
-			double	average_dt = 0;
-			for (int i = 0; i < num_elapsed; i++)
-				average_dt += history[i];	
-			average_dt /= num_elapsed;
-
-			sprintf(winTitle, "%s, %6.2f FPS", winTitle, 1000 / average_dt);
-			//cout << winTitle << endl;
-
-			index++;
-		//}
-
+		sprintf(winTitle, "PBF with %d particles, %6.2f FPS", pSystem->numParticles, frameRate->getFPS());
 		glfwSetWindowTitle(window, winTitle);
 
 		// Simulation and then render
 		render(window);
 
-		if (index % 5 == 0){
-			descrete_fps = 1 / dt;
-		}
-		//font->drawText(200, 0, "FPS %.2lf, %lf", descrete_fps, dt);
-		font->drawText(200, 0, "FPS %.2f", 1000.0 / average_dt);
-
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
 
-	delete filter;
-	delete filter_BFGL;
-	timer1->report();
-	delete timer1;
-	timer2->report();
-	delete timer2;
-	delete font;
+	// Free resources
+	for (auto &shader : shaders){
+		delete shader;
+	}
+	for (auto &texture : textures){
+		delete texture;
+	}
+	delete filter, lowpassFilter;
+	delete font, frameRate;
 	delete pSystem;
 
 	glfwTerminate();
 	return	0;
 }
-
-glm::vec2 viewport;
-
-// Viewing matrix and vector
-glm::vec3 translation;
-glm::mat4 scaleMatrix;
-glm::mat4 rotationMatrix;
-//glm::mat4 modelMatrix;
-glm::mat4 viewMatrix;
-glm::mat4 projectionMatrix;
-glm::mat4 MVPMatrix;
-
-// Viewing control
-glm::quat	qX;
-glm::quat	qY;
-glm::quat	qRot;
-
-glm::vec3	curMouseOnTrackBall;
-glm::vec3	preMouseOnTrackBall;
-glm::vec3	curMouseOnPlane;
-glm::vec3	preMouseOnPlane;
-float		trackBallRadius;
-
-float fovy		= 45.0f;
-float zNear		= 10.0f;
-float zFar		= 70.0f;
-//float pplaneWidth	= 0;
-//float pplaneHeight	= 0;
 
 void
 reshapeWindow(GLFWwindow* window, int w, int h )
@@ -273,45 +310,12 @@ reshapeFramebuffer(GLFWwindow* window, int w, int h )
 
 	float	aspect = (float)w/h;
 	projectionMatrix	= glm::perspective(fovy, aspect, zNear, zFar);
+	invProjectionMatrix = glm::inverse(projectionMatrix);
 
 	glViewport( 0, 0, w, h );
 
 //	cout << "The framebuffer size changed into " << w << " x " << h << " with aspect ratio = " << aspect << endl;
 }
-
-//@ camera x-formations
-float4 mouseStart;
-float4 mouseEnd;
-bool bMouseLeftDown = false;
-bool bMouseRightDown = false;
-
-//@ depth image type
-enum DepthImageTypes
-{
-	DIMG_ORIGINAL = 0,
-	DIMG_BILATERAL_FILTERED,
-	DIMG_SEPERABLE_FILTERED,
-
-	NUM_DIMGTYPES
-};
-
-DepthImageTypes dImageType = DIMG_ORIGINAL;
-
-//@ render type
-enum RenderTypes
-{
-	RENDER_FLAT = 0,
-	RENDER_THICKNESS,
-	RENDER_SHADED,
-	RENDER_TEST,
-	RENDER_TEST_R,
-	RENDER_OUTLINE,
-	RENDER_CEL,
-
-	NUM_RENDERTYPES
-};
-
-RenderTypes renderType = RENDER_THICKNESS;
 
 void
 mouseButton(GLFWwindow* window, int button, int action, int mods)
@@ -428,129 +432,6 @@ mouseMotion(GLFWwindow* window, double x, double y)
 	preMouseOnPlane		= curMouseOnPlane;
 }
 
-// Rendering
-//
-
-glm::vec3 cameraPos(0.0f, 0.0f, 0.5f*(zFar + zNear));
-glm::vec3 targetPos(0.0f, 0.0f, 0.0f);
-
-
-//@ textures
-enum Textures
-{
-	TEX_SPHERE = 0,
-	TEX_COLOR,
-	TEX_THICKNESS,
-	TEX_DEPTH,
-	TEX_DIFFUSE_WRAP,
-	TEX_OUTLINE,
-	TEX_SKYBOX,
-
-	NUM_TEXTURES,
-};
-
-GLuint textureIds[NUM_TEXTURES];
-GLuint renderbuffer_depth;
-
-//@ FBOs
-enum FBOS
-{
-	FBO_DEPTH,
-	FBO_FILTER_X,
-	FBO_FILTER_Y,
-
-	NUM_FBOS
-};
-
-GLuint *pFBOArray = NULL;
-
-//@ VAOs
-enum VAOS
-{
-	VAO_PARTICLE,
-	VAO_CUBE,
-	VAO_AXIS,
-	VAO_FINAL,
-
-	NUM_VAOS
-};
-
-GLuint *pVAOArray = NULL;
-GLuint particleVbo;
-GLuint finalVbo[2];
-
-//@ quad for rendering
-float2 quadVert[] = {
-	make_float2(-1.0f, -1.0f),
-	make_float2( 1.0f, -1.0f),
-	make_float2( 1.0f,  1.0f),
-	make_float2(-1.0f,  1.0f),
-};
-float2 texCoord[4] = {
-	make_float2(0.0f, 0.0f),
-	make_float2(1.0f, 0.0f),
-	make_float2(1.0f, 1.0f),
-	make_float2(0.0f, 1.0f),
-};
-
-//@ shaders
-enum ShaderType
-{
-	SHDR_DEPTH = 0,
-	SHDR_THICKNESS,
-	SHDR_TEST,
-	SHDR_SKYBOX,
-
-	NUM_SHADERS
-};
-
-char* shaders[][2] = {
-	{(char*)"depth.vert",		(char*)"depth.frag"},
-	{(char*)"thickness.vert",	(char*)"thickness.frag"},
-	{(char*)"test.vert",		(char*)"test.frag"},
-	{ (char*)"skybox.vert", (char *)"skybox.frag" },
-};
-
-GLuint programIds[10] = {0,};
-
-//@ uniform location
-namespace UNILOC_DEPTH
-{
-	GLuint projMatLoc		= 0;
-	GLuint viewMatLoc		= 0;
-	GLuint MVPMatLoc		= 0;
-	GLuint viewportLoc		= 0;
-	GLuint spriteSizeLoc	= 0; 
-	GLuint alphaLoc			= 0;
-};
-
-namespace UNILOC_THICKNESS
-{
-	GLuint projMatLoc		= 0;
-	GLuint viewMatLoc		= 0;
-	GLuint MVPMatLoc		= 0;
-	GLuint viewportLoc		= 0;
-	GLuint spriteSizeLoc	= 0; 
-	GLuint alphaLoc         = 0; 
-};
-
-namespace UNILOC_TEST
-{
-	GLuint projMatLoc		= 0;
-	GLuint invProjMatLoc	= 0;
-	GLuint modelViewMatLoc	= 0;
-	GLuint viewportLoc		= 0;
-	GLuint zNearLoc			= 0;
-	GLuint renderType		= 0;
-	GLuint alphaLoc			= 0;
-};
-
-namespace UNILOC_SKYBOX
-{
-	GLuint viewMatLoc = 0;
-	GLuint projMatLoc = 0;
-};
-
 void
 initRenderingPipeline()
 {
@@ -580,31 +461,25 @@ initRenderingPipeline()
 	preMouseOnPlane = glm::vec3(0.0f);
 	
 	// Point sprite is deprecated.
-	if (0)
-	{
-		//@ Prepare sphere texture for fluid rendering
-		glGenTextures(1, &textureIds[TEX_SPHERE]);
+	//if (0)
+	//{
+	//	//@ Prepare sphere texture for fluid rendering
+	//	glGenTextures(1, &textureIds[TEX_SPHERE]);
 
-		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SPHERE]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-		checkOpenGL("glTexImage2D", __FILE__, __LINE__, false, true);
+	//	glBindTexture(GL_TEXTURE_2D, textureIds[TEX_SPHERE]);
+	//	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	//	checkOpenGL("glTexImage2D", __FILE__, __LINE__, false, true);
 
-		glEnable(GL_POINT_SPRITE);
-		checkOpenGL("glEnable", __FILE__, __LINE__, false, true);
-		glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_TRUE);
-		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	//	glEnable(GL_POINT_SPRITE);
+	//	checkOpenGL("glEnable", __FILE__, __LINE__, false, true);
+	//	glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_TRUE);
+	//	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	}
-
-	//@ loading shaders
-	for( int i = 0; i < NUM_SHADERS; i++ )
-	{
-		programIds[i] = setShaders(shaders[i][0], shaders[i][1]);
-	}
+	//	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	//	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	//	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	//	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	//}
 
 	if (pFBOArray) delete[] pFBOArray;
 	pFBOArray = new GLuint[NUM_FBOS];
@@ -619,125 +494,61 @@ initRenderingPipeline()
 	glGenBuffers(1, &particleVbo);
 
 	glBindVertexArray(pVAOArray[VAO_FINAL]);
-	glGenBuffers(1, finalVbo);
-	glBindBuffer(GL_ARRAY_BUFFER, finalVbo[0]);
+	glGenBuffers(1, &finalVbo);
+	glBindBuffer(GL_ARRAY_BUFFER, finalVbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(float2) * 4, quadVert, GL_STATIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 //	pplaneHeight	= 2.0f*zNear*tan(0.5f*fovy/180.0f*glm::pi<float>());
 //	pplaneWidth		= pplaneHeight*aspect;
 
-	//@ get uniform location
-	UNILOC_DEPTH::projMatLoc	= glGetUniformLocation(programIds[SHDR_DEPTH], "P");
-	UNILOC_DEPTH::viewMatLoc	= glGetUniformLocation(programIds[SHDR_DEPTH], "V");
-	UNILOC_DEPTH::MVPMatLoc		= glGetUniformLocation(programIds[SHDR_DEPTH], "MVP");
-	UNILOC_DEPTH::viewportLoc	= glGetUniformLocation(programIds[SHDR_DEPTH], "viewport");
-	UNILOC_DEPTH::spriteSizeLoc = glGetUniformLocation(programIds[SHDR_DEPTH], "spriteSize");
-	UNILOC_DEPTH::alphaLoc		= glGetUniformLocation(programIds[SHDR_DEPTH], "alpha");
-
-	UNILOC_THICKNESS::projMatLoc	= glGetUniformLocation(programIds[SHDR_THICKNESS], "P");
-	UNILOC_THICKNESS::viewMatLoc	= glGetUniformLocation(programIds[SHDR_THICKNESS], "V");
-	UNILOC_THICKNESS::MVPMatLoc		= glGetUniformLocation(programIds[SHDR_THICKNESS], "MVP");
-	UNILOC_THICKNESS::viewportLoc	= glGetUniformLocation(programIds[SHDR_THICKNESS], "viewport");
-	UNILOC_THICKNESS::spriteSizeLoc = glGetUniformLocation(programIds[SHDR_THICKNESS], "spriteSize");
-	UNILOC_THICKNESS::alphaLoc = glGetUniformLocation(programIds[SHDR_THICKNESS], "alpha");
-
-	UNILOC_TEST::projMatLoc = glGetUniformLocation(programIds[SHDR_TEST], "projectionMatrix");
-	UNILOC_TEST::invProjMatLoc = glGetUniformLocation(programIds[SHDR_TEST], "invProjectionMatrix");
-	UNILOC_TEST::viewportLoc = glGetUniformLocation(programIds[SHDR_TEST], "viewport");
-	UNILOC_TEST::renderType = glGetUniformLocation(programIds[SHDR_TEST], "renderType");
-	UNILOC_TEST::alphaLoc = glGetUniformLocation(programIds[SHDR_TEST], "alpha");
-
-	UNILOC_SKYBOX::viewMatLoc = glGetUniformLocation(programIds[SHDR_SKYBOX], "V");
-	UNILOC_SKYBOX::projMatLoc = glGetUniformLocation(programIds[SHDR_SKYBOX], "P");
+	// Load shaders
+	for (int i = 0; i < NUM_SHADERS; ++i){
+		delete shaders[i];
+		shaders[i] = Shader::createWithFile(shader_filenames[i][0], shader_filenames[i][1]);
+	}
 
 	// Variouse textures
 	//
-	glDeleteTextures(NUM_TEXTURES, textureIds);
-	{
-		//@ create color texture
-		glGenTextures(1, &textureIds[TEX_COLOR]);
-		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_COLOR]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, windowW, windowH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glBindTexture(GL_TEXTURE_2D, 0);
+	// create thickness texture
+	delete textures[TEX_THICKNESS];
+	textures[TEX_THICKNESS] = Texture2D::createEmpty(GL_R32F, windowW, windowH, GL_RED, GL_FLOAT);
+	textures[TEX_THICKNESS]->setWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	textures[TEX_THICKNESS]->setFilter(GL_LINEAR, GL_LINEAR);
 
-		//@ create thickness texture
-		glGenTextures(1, &textureIds[TEX_THICKNESS]);
-		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_THICKNESS]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, windowW, windowH, 0, GL_RED, GL_FLOAT, NULL);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glBindTexture(GL_TEXTURE_2D, 0);
+	// create depth texture
+	delete textures[TEX_DEPTH];
+	textures[TEX_DEPTH] = Texture2D::createEmpty(GL_DEPTH_COMPONENT32F, windowW, windowH, GL_DEPTH_COMPONENT, GL_FLOAT);
+	textures[TEX_DEPTH]->setWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	textures[TEX_DEPTH]->setFilter(GL_LINEAR, GL_LINEAR);
 
-		//@ create depth texture
-		glGenTextures(1, &textureIds[TEX_DEPTH]);
-		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, windowW, windowH, 0, GL_RED, GL_FLOAT, NULL);
-		//glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, windowW, windowH, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glBindTexture(GL_TEXTURE_2D, 0);
+	// create skybox texture
+	delete textures[TEX_SKYBOX];
+	textures[TEX_SKYBOX] = TextureCubemap::createWithFiles("resources/TropicalSunnyDay/TropicalSunnyDayLeft2048.png",
+														"resources/TropicalSunnyDay/TropicalSunnyDayRight2048.png",
+														"resources/TropicalSunnyDay/TropicalSunnyDayUp2048.png",
+														"resources/TropicalSunnyDay/TropicalSunnyDayDown2048.png",
+														"resources/TropicalSunnyDay/TropicalSunnyDayFront2048.png",
+														"resources/TropicalSunnyDay/TropicalSunnyDayBack2048.png");
+	textures[TEX_SKYBOX]->setWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	textures[TEX_SKYBOX]->setFilter(GL_LINEAR, GL_LINEAR);
 
-		//@ create skybox texture
-		glGenTextures(1, &textureIds[TEX_SKYBOX]);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, textureIds[TEX_SKYBOX]);
-		for (int i = 0; i < 6; ++i){
-			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, skybox_width, skybox_height, 0, GL_BGR, GL_UNSIGNED_BYTE, (void *)&(texdata_skybox[i].front()));
-		}
-		glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-
-		//@ create diffuse wrap texture
-		glGenTextures(1, &textureIds[TEX_DIFFUSE_WRAP]);
-		glBindTexture(GL_TEXTURE_1D, textureIds[TEX_DIFFUSE_WRAP]);
-		glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, &texdata_diffuseWrap.front());
-		glTexParameterf(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glBindTexture(GL_TEXTURE_1D, 0);
-
-		glGenTextures(1, &textureIds[TEX_OUTLINE]);
-		glBindTexture(GL_TEXTURE_2D, textureIds[TEX_OUTLINE]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, windowW, windowH, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-	glDeleteRenderbuffers(1, &renderbuffer_depth);
-	glGenRenderbuffers(1, &renderbuffer_depth);
-	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer_depth);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, windowW, windowH);
-	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	// create diffuse wrap texture
+	delete textures[TEX_DIFFUSE_WRAP];
+	textures[TEX_DIFFUSE_WRAP] = Texture1D::create(ImageData::createWithRawFile("resources/diffuse wrap_spirit of sea.raw", 256, 1, 3));
+	textures[TEX_DIFFUSE_WRAP]->setWrap(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	textures[TEX_DIFFUSE_WRAP]->setFilter(GL_LINEAR, GL_LINEAR);
 
 	//@ create FBO_DEPTH
 	glGenFramebuffers(1, &pFBOArray[FBO_DEPTH]);
 	glBindFramebuffer(GL_FRAMEBUFFER, pFBOArray[FBO_DEPTH]);
 	{
 		//@ attach color textures
-		//glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureIds[TEX_COLOR], 0);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureIds[TEX_THICKNESS], 0);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, textureIds[TEX_DEPTH], 0);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, textureIds[TEX_OUTLINE], 0);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbuffer_depth);
-		//glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, textureIds[TEX_DEPTH], 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[TEX_THICKNESS]->getID(), 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, textures[TEX_DEPTH]->getID(), 0);
 
 		//@ set the list of draw buffers
-		GLuint attachments[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+		GLuint attachments[] = { GL_COLOR_ATTACHMENT0 };
 		glDrawBuffers(sizeof(attachments) / sizeof(GLuint), attachments);
 		checkOpenGL("glDrawBuffers()", __FILE__, __LINE__, false, true);
 
@@ -750,31 +561,25 @@ initRenderingPipeline()
 	}
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-	delete timer1;
-	timer1 = new TimerGPU();
-	delete timer2;
-	timer2 = new TimerGPU();
-
+	// Delete and create separable bilateral filter for depth smoothing.
+	spriteSize = (float)screenH / numSpritePerWindowWidth * scale;
 	delete filter;
-	filter = BilateralFilter::create(windowW, windowH,
-		textureIds[TEX_DEPTH], freq_radius, sigma_s, sigma_r / 255.0f, iterations,
-		textureIds[TEX_OUTLINE], dog_radius, dog_sigma, dog_similarity,
-		textureIds[TEX_THICKNESS]);
-	filter->setMatrix(projectionMatrix, glm::inverse(projectionMatrix));
-	
-	delete filter_BFGL;
-	filter_BFGL = BFGL::create(windowW, windowH, freq_radius, sigma_s, sigma_r, iterations, projectionMatrix, glm::inverse(projectionMatrix));
+	filter = BilateralFilterGL::create(windowW, windowH, kernel_radius, spriteSize * sigma_s, spriteSize * sigma_r, filter_iteration, projectionMatrix, invProjectionMatrix);
+
+	// Delete and create lowpass filter for thickness smoothig.
+	delete lowpassFilter;
+	lowpassFilter = LowpassFilter::create(windowW, windowH, 20.0f, true);
+	lowpassFilter->setTexture(textures[TEX_THICKNESS]->getID());
+
+	// Delete and create text renderder. This is bad module(especially on performance) and should be changed.
+	delete font;
+	font = Font::create(finalVbo);
 }
 
 void
 render(GLFWwindow* window)
 {
-	clock_t start = clock();
-
 	if(!pSystem->bPause)	pSystem->simulate(1.0 / FPS);
-
-	clock_t end = clock();
-	//cout << "simulation: " << end - start << endl;
 
 	// Check the number of particls
 	if (pSystem->numParticles == 0)
@@ -805,8 +610,9 @@ render(GLFWwindow* window)
 	// Depth and Thickness
 	//
 	glBindFramebuffer(GL_FRAMEBUFFER, pFBOArray[FBO_DEPTH]);
+	glClearColor(0.0, 0.0, 0.0, 0.0);
 	glClearDepth(1.0);
-	glClear(GL_DEPTH_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	{
 		// Copy particle data to array buffer.
 		//
@@ -819,72 +625,48 @@ render(GLFWwindow* window)
 
 		// Depth of the fluid surface
 		//
-		glDrawBuffer(GL_COLOR_ATTACHMENT1);
-		glClearColor(1.0, 0.0, 0.0, 0.0);
-		glClear(GL_COLOR_BUFFER_BIT);
-		glUseProgram(programIds[SHDR_DEPTH]);
+		shaders[SHDR_DEPTH]->bind();
 		{
-			glUniform1f(UNILOC_DEPTH::spriteSizeLoc, spriteSize);
-			glUniformMatrix4fv(UNILOC_DEPTH::viewMatLoc, 1, GL_FALSE, &viewMatrix[0][0]);
-			glUniformMatrix4fv(UNILOC_DEPTH::projMatLoc, 1, GL_FALSE, &projectionMatrix[0][0]);
+			shaders[SHDR_DEPTH]->setUniform("spriteSize", spriteSize);
+			shaders[SHDR_DEPTH]->setUniform("V", viewMatrix);
+			shaders[SHDR_DEPTH]->setUniform("P", projectionMatrix);
 			//glUniformMatrix4fv(UNILOC_DEPTH::anisotropyMatLoc, 1, GL_FALSE, &pSystem->h_mat[0].x); 
 
 			glEnable(GL_DEPTH_TEST);	// Enable the depth test to obtain the eye-closest surface
 			glDrawArrays(GL_POINTS, 0, pSystem->numParticles);
 			glDisable(GL_DEPTH_TEST);	// Disable the depth test to accumulate the thickness
 		}
-		glUseProgram(0);
+		Shader::bindDefault();
 		checkOpenGL("Depth Shader", __FILE__, __LINE__, false, true);
 
 		// Thickness of the fluid to mimic volume of fluid
 		//
-		glDrawBuffer(GL_COLOR_ATTACHMENT0);
-		glClearColor(0.0, 0.0, 0.0, 0.0);
-		glClear(GL_COLOR_BUFFER_BIT);
-		glUseProgram(programIds[SHDR_THICKNESS]);
+		shaders[SHDR_THICKNESS]->bind();
 		{
-			glUniform1f(UNILOC_THICKNESS::spriteSizeLoc, spriteSize);
-			glUniform1f(UNILOC_THICKNESS::alphaLoc, fluidAlpha);
-			glUniform2fv(UNILOC_THICKNESS::viewportLoc, 1, &viewport[0]);
-			glUniform1f(glGetUniformLocation(programIds[SHDR_THICKNESS], "P32"), projectionMatrix[3][2]);
-			glUniform1f(glGetUniformLocation(programIds[SHDR_THICKNESS], "P22"), projectionMatrix[2][2]);
-			glUniform1f(glGetUniformLocation(programIds[SHDR_THICKNESS], "intensityRange"), zFar - zNear);
-			glUniformMatrix4fv(UNILOC_THICKNESS::MVPMatLoc, 1, GL_FALSE, &MVPMatrix[0][0]);
-
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
+			shaders[SHDR_THICKNESS]->setUniform("spriteSize", spriteSize);
+			shaders[SHDR_THICKNESS]->setUniform("alpha", alpha);
+			shaders[SHDR_THICKNESS]->setUniform("MVP", MVPMatrix);
 
 			glEnable(GL_BLEND);			// Accumlate the thickness using the additive alpha blending
 			glBlendFunc(GL_ONE, GL_ONE);
 			glDrawArrays(GL_POINTS, 0, pSystem->numParticles);
 			glDisable(GL_BLEND);
 
-			glBindTexture(GL_TEXTURE_2D, 0);
+			Texture2D::bindDefault();
 		}
-		glUseProgram(0);
+		Shader::bindDefault();
 		checkOpenGL("Thickness Shader", __FILE__, __LINE__, false, true);
 
 		glDisable(GL_VERTEX_PROGRAM_POINT_SIZE);
 		glDisableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
-	}
 
-	//@ orthogonal pjorection from now on
-	glm::mat4 invProjectionMatrix	= glm::inverse(projectionMatrix);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, pFBOArray[FBO_DEPTH]);
-	timer1->start();
-	if (dImageType == DIMG_BILATERAL_FILTERED){
-		filter_BFGL->run(textureIds[TEX_DEPTH]);
-	}
-	else if (dImageType == DIMG_SEPERABLE_FILTERED){
-		filter->filter(renderType == RenderTypes::RENDER_CEL || renderType == RenderTypes::RENDER_OUTLINE);
-	}
-	float elapsedTime = timer1->stop();
-	timer2->start();
-	//filter->filterThickness();
-	if (timer2->isEnabled()){
-		std::cout << timer2->stop() << std::endl;
+		if (dImageType == DIMG_BILATERAL_FILTERED){
+			// Filter on depth.
+			filter->run(textures[TEX_DEPTH]->getID());
+		}
+		// Filter on thickness.
+		lowpassFilter->run();
 	}
 
 	//@ final scene
@@ -892,15 +674,16 @@ render(GLFWwindow* window)
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	//	float scaledZNear = zNear*((float)windowW/pplaneWidth);
 	{
-		glUseProgram(programIds[SHDR_SKYBOX]);
+		// Render skybox
+		shaders[SHDR_SKYBOX]->bind();
 		{
+			shaders[SHDR_SKYBOX]->setUniform("invV", glm::inverse(glm::mat3(viewMatrix)));
+			shaders[SHDR_SKYBOX]->setUniform("invP", invProjectionMatrix);
+
 			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_CUBE_MAP, textureIds[TEX_SKYBOX]);
+			textures[TEX_SKYBOX]->bind();
 
-			glUniformMatrix4fv(UNILOC_SKYBOX::viewMatLoc, 1, GL_FALSE, &viewMatrix[0][0]);
-			glUniformMatrix4fv(UNILOC_SKYBOX::projMatLoc, 1, GL_FALSE, &projectionMatrix[0][0]);
-
-			glBindBuffer(GL_ARRAY_BUFFER, finalVbo[0]);
+			glBindBuffer(GL_ARRAY_BUFFER, finalVbo);
 			glEnableVertexAttribArray(0);
 			glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
 
@@ -908,38 +691,34 @@ render(GLFWwindow* window)
 
 			glDisableVertexAttribArray(0);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+			TextureCubemap::bindDefault();
 		}
-		glUseProgram(0);
+		Shader::bindDefault();
 		checkOpenGL("Skybox Shader.", __FILE__, __LINE__, false, true);
 
-		glUseProgram(programIds[SHDR_TEST]);
+		shaders[SHDR_TEST]->bind();
 		{
+			shaders[SHDR_TEST]->setUniform("viewport", viewport);
+			shaders[SHDR_TEST]->setUniform("alpha", fluidAlpha);
+			shaders[SHDR_TEST]->setUniform("renderType", renderType);
+			shaders[SHDR_TEST]->setUniform("projectionMatrix", projectionMatrix);
+			shaders[SHDR_TEST]->setUniform("invProjectionMatrix", invProjectionMatrix);
+
 			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
+			textures[TEX_DEPTH]->bind();
 
 			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_THICKNESS]);
+			textures[TEX_THICKNESS]->bind();
 
 			glActiveTexture(GL_TEXTURE2);
-			glBindTexture(GL_TEXTURE_1D, textureIds[TEX_DIFFUSE_WRAP]);
+			textures[TEX_DIFFUSE_WRAP]->bind();
 
 			glActiveTexture(GL_TEXTURE3);
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_OUTLINE]);
-
-			glActiveTexture(GL_TEXTURE4);
-			glBindTexture(GL_TEXTURE_CUBE_MAP, textureIds[TEX_SKYBOX]);
-
-			glUniform2fv(UNILOC_TEST::viewportLoc, 1, &viewport[0]);
-			glUniform1f(UNILOC_TEST::alphaLoc, fluidAlpha);
-			glUniform1i(UNILOC_TEST::renderType, renderType);
-			glUniform1i(glGetUniformLocation(programIds[SHDR_TEST], "genNormal"), genNormal);
-
-			glUniformMatrix4fv(UNILOC_TEST::projMatLoc, 1, GL_FALSE, &projectionMatrix[0][0]);
-			glUniformMatrix4fv(UNILOC_TEST::invProjMatLoc, 1, GL_FALSE, &invProjectionMatrix[0][0]);
-			//glUniformMatrix4fv(UNILOC_TEST::modelViewMatLoc, 1, GL_FALSE, &viewMatrix[0][0]);
+			textures[TEX_SKYBOX]->bind();
 
 			glEnableVertexAttribArray(0);
-			glBindBuffer(GL_ARRAY_BUFFER, finalVbo[0]);
+			glBindBuffer(GL_ARRAY_BUFFER, finalVbo);
 			glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
 
 			glEnable(GL_BLEND);
@@ -950,26 +729,24 @@ render(GLFWwindow* window)
 			glDisableVertexAttribArray(0);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-			glBindTexture(GL_TEXTURE_1D, 0);
-			glBindTexture(GL_TEXTURE_2D, 0);
-			glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+			Texture1D::bindDefault();
+			Texture2D::bindDefault();
+			TextureCubemap::bindDefault();
 		}
-		glUseProgram(0);
+		Shader::bindDefault();
 		checkOpenGL("Final Render Shader", __FILE__, __LINE__, false, true);
 	}
-
 	
-	end = clock();
-	//cout << "total: " << end - start << endl;
-
+	// Render text.
+	//
+	// Make status text.
 	std::stringstream ss;
-	ss << "< STATUS >" << std::endl;
+	ss << "< STATUS > " << frameRate->getMPF() << "mpf" << std::endl;
 	std::string str;
 	switch (renderType)
 	{
 	case RenderTypes::RENDER_TEST:			str = "Test Shading";		break;
 	case RenderTypes::RENDER_CEL:			str = "Cel Shading";		break;
-	case RenderTypes::RENDER_OUTLINE:		str = "Outline";			break;
 	case RenderTypes::RENDER_TEST_R:		str = "Test Shading + Reflection + Refraction";	break;
 	case RenderTypes::RENDER_FLAT:			str = "Depth";				break;
 	case RenderTypes::RENDER_SHADED:		str = "Shaded";				break;
@@ -979,102 +756,101 @@ render(GLFWwindow* window)
 	ss << "Rendering mode : " << str << std::endl;
 	switch (dImageType)
 	{
-	case DepthImageTypes::DIMG_BILATERAL_FILTERED:		str = "bilateral filtered using compute shader";		break;
-	case DepthImageTypes::DIMG_SEPERABLE_FILTERED:		str = "bilateral filtered using CUDA";		break;
-	case DepthImageTypes::DIMG_ORIGINAL:				str = "Original";							break;
-	default:											str = "";									break;
+	case DepthImageTypes::DIMG_BILATERAL_FILTERED:		str = "Bilateral filtered";		break;
+	case DepthImageTypes::DIMG_ORIGINAL:				str = "Original";				break;
+	default:											str = "";						break;
 	}
 	ss << "Depth Image : " << str << std::endl;
-	ss << "Kernel Radius : " << freq_radius << std::endl;
-	ss << "Sigma R : " << sigma_r << std::endl;
+	ss << "Kernel Radius : " << kernel_radius << std::endl;
 	ss << "Sigma S : " << sigma_s << std::endl;
-	ss << "# of Filter Iteration : " << iterations << std::endl;
-	if (renderType == RenderTypes::RENDER_CEL || renderType == RenderTypes::RENDER_OUTLINE){
-		ss << "DOG Kernel Radius : " << dog_radius << std::endl;
-		ss << "DOG Sigma : " << dog_sigma << std::endl;
-		ss << "DOG Similarity : " << dog_similarity << std::endl;
-	}
+	ss << "Sigma R : " << sigma_r << std::endl;
+	ss << "# of Filter Iteration : " << filter_iteration << std::endl;
+	ss << "3D Filtering : " << (filter->b3DFiltering ? "ON" : "OFF") << std::endl;
+	ss << "Depth Correction : " << (filter->bDepthCorrection ? "ON" : "OFF") << std::endl;
 
-	//if (timer1->isEnabled()){
-	//	ss << "Elapsed time : " << elapsedTime << std::endl;
-	//}
-
+	// Draw text twice for outline.
 	font->setStyle(FONT_STYLE_BOLD);
 	font->setColor(0.0f, 0.0f, 0.0f, 1.0f);
 	font->drawText(0, 0, ss.str().c_str());
-
 	font->setStyle(FONT_STYLE_REGULAR);
 	font->setColor(1.0f, 1.0f, 1.0f, 1.0f);
 	font->drawText(0, 0, ss.str().c_str());
-	glUseProgram(0);
 }
 
 void
 keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+	// Control filter parameters
 	if (mods == GLFW_MOD_CONTROL){
-		if (key == GLFW_KEY_T && action == GLFW_PRESS){
-			if (timer1->isEnabled()){
-				timer1->report();
-				timer1->disable();
-
-				timer2->report();
-				timer2->disable();
+		switch (key)
+		{
+		// Change kernel radius
+		case GLFW_KEY_K:
+			if (action == GLFW_PRESS){
+				kernel_radius += 5.0f;
+				if (kernel_radius > 50.0f){
+					kernel_radius = 5.0f;
+				}
 			}
-			else{
-				timer1->enable();
-
-				timer2->enable();
+			break;
+		// Change sigma_s
+		case GLFW_KEY_S:
+			if (action == GLFW_PRESS){
+				sigma_s += 0.01;
+				if (sigma_s > 0.2){
+					sigma_s = 0.01;
+				}
 			}
+			break;
+		// Change sigma_r
+		case GLFW_KEY_R:
+			if (action == GLFW_PRESS){
+				sigma_r += 0.05;
+				if (sigma_r > 1.0){
+					sigma_r = 0.05;
+				}
+			}
+			break;
+		// Change # of filter iterations
+		case GLFW_KEY_I:
+			if (action == GLFW_PRESS){
+				++filter_iteration;
+				if (filter_iteration > 10){
+					filter_iteration = 1;
+				}
+			}
+			break;
+		case GLFW_KEY_LEFT_BRACKET:
+			if (action == GLFW_PRESS){
+				filter->toggle3DFiltering();
+			}
+			break;
+		case GLFW_KEY_RIGHT_BRACKET:
+			if (action == GLFW_PRESS){
+				filter->toggleDepthCorrection();
+			}
+			break;
+		default:
+			break;
 		}
-		if (glfwGetKey(window, GLFW_KEY_K)){
-			freq_radius += 5.0f;
-			if (freq_radius > 50.0f){
-				freq_radius = 5.0f;
-			}
+		
+		float _sigma_s;
+		if (filter->b3DFiltering){
+			_sigma_s = spriteSize * sigma_s;
 		}
-		else if (glfwGetKey(window, GLFW_KEY_R)){
-			sigma_r += 1;
-			if (sigma_r > 50){
-				sigma_r = 0;
-			}
+		else{
+			// Set sigma_s as a quater of kernel_radius.
+			_sigma_s = 0.25f * kernel_radius;
 		}
-		else if (glfwGetKey(window, GLFW_KEY_S)){
-			sigma_s += 1;
-			if (sigma_s > 50){
-				sigma_s = 1;
-			}
+		float _sigma_r;
+		if (filter->bDepthCorrection){
+			_sigma_r = spriteSize * sigma_r;
 		}
-		else if (glfwGetKey(window, GLFW_KEY_I)){
-			++iterations;
-			if (iterations > 10){
-				iterations = 1;
-			}
+		else{
+			// Range should be in [0.0 1.0]
+			_sigma_r = sigma_r;
 		}
-		filter->setBFParam(freq_radius, spriteSize * (sigma_s / 255.0f), sigma_r * (zFar - zNear) / 255.0f, iterations);
-		filter_BFGL->setParameters(freq_radius, spriteSize * (sigma_s / 255.0f), sigma_r * (zFar - zNear) / 255.0f, iterations);
-		return;
-	}
-	else if (mods == GLFW_MOD_ALT){
-		if (glfwGetKey(window, GLFW_KEY_K)){
-			dog_radius += 1;
-			if (dog_radius > 60){
-				dog_radius = 1;
-			}
-		}
-		else if (glfwGetKey(window, GLFW_KEY_S)){
-			dog_sigma += 1;
-			if (dog_sigma > 60){
-				dog_sigma = 1;
-			}
-		}
-		else if (glfwGetKey(window, GLFW_KEY_D)){
-			dog_similarity -= 0.01f;
-			if (dog_similarity < 0.1f){
-				dog_similarity = 0.99f;
-			}
-		}
-		filter->setDOGParam(dog_radius, dog_sigma, dog_similarity);
+		filter->setParameters(kernel_radius, _sigma_s, _sigma_r, filter_iteration);
 		return;
 	}
 
@@ -1101,6 +877,9 @@ keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 
 			pSystem = new PBFSystem2D();
 			pSystem->initParticleSystem(param);
+
+			delete frameRate;
+			frameRate = FrameRate::create();
 
 			// Initialize the rendering pipeline
 			initRenderingPipeline();
@@ -1161,51 +940,6 @@ keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 		if (action == GLFW_PRESS)
 		{
 			bWorldRotateY = !bWorldRotateY;
-		}
-		break;
-
-	case GLFW_KEY_SLASH:
-		if (action == GLFW_PRESS){
-			time_t _time = time(NULL);
-			tm tm;
-			localtime_s(&tm, &_time);
-			std::stringstream ss;
-
-			GLfloat *texData = new GLfloat[screenW * screenH];
-			for (int i = 0; i < screenW * screenH; ++i){
-				texData[i] = 500.0f * abs(screenshot1[i] - screenshot2[i]);
-				if (texData[i] > 1.0f){
-					texData[i] = 1.0f;
-				}
-			}
-
-			ss << tm.tm_hour << "_" << tm.tm_min << "_" << tm.tm_sec << ".png";
-			saveAsPNG(ss.str().c_str(), texData, screenW, screenH);
-			delete[] texData;
-		}
-		break;
-	case GLFW_KEY_COMMA:
-		if (action == GLFW_PRESS){
-			screenshot1.clear();
-			screenshot1.resize(screenW * screenH);
-
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
-			glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, screenshot1.data());
-		}
-		break;
-	case GLFW_KEY_PERIOD:
-		if (action == GLFW_PRESS){
-			screenshot2.clear();
-			screenshot2.resize(screenW * screenH);
-
-			glBindTexture(GL_TEXTURE_2D, textureIds[TEX_DEPTH]);
-			glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, screenshot2.data());
-		}
-		break;
-
-	case GLFW_KEY_APOSTROPHE:
-		if (action == GLFW_PRESS){
-			genNormal = !genNormal;
 		}
 		break;
 

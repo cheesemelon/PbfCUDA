@@ -1,6 +1,5 @@
 #version 330
 
-//uniform float		alpha;
 uniform	mat4		P;
 //uniform	mat4		V;
 //uniform vec2		viewport;
@@ -10,8 +9,6 @@ uniform	mat4		P;
 in vec4 x_e;
 //in mat4 T;
 //in mat4 M;
-
-layout(location = 0) out float	smoothed_depth;
 
 void
 main(void)
@@ -31,8 +28,6 @@ main(void)
 	float surfaceDepth = 0.5 * (clipSpacePos.z/clipSpacePos.w + 1.0);	
 
 	gl_FragDepth = surfaceDepth;
-	smoothed_depth = surfaceDepth;
-	//thickness = 0.0;
 }
 
 

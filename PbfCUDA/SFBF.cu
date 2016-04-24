@@ -1,7 +1,8 @@
 #include "SFBF.cuh"
-#include "temp.h"
 #include "LowpassFilter.cuh"
+#include "gl\glew.h"
 #include <cuda_gl_interop.h>
+#include "Common.h"
 
 int nchoosek(int n, int k){
 	if (k == 0){
@@ -12,6 +13,7 @@ int nchoosek(int n, int k){
 	}
 }
 
+//@ Change intensity range from [0.0 1.0] to [0.0 255.0].
 __global__ void d_scale_up(float *data, int bound){
 	int offset = threadIdx.x + blockIdx.x * blockDim.x;
 	if (offset < bound){
@@ -45,6 +47,7 @@ __global__ void d_bilateral_summation(float *out1, float *out2, const float *in,
 	}
 }
 
+//@ Normalize the result and change intensity range from [0.0 255.0] to [0.0 1.0].
 __global__ void d_bilateral_final(float *in, float *out1, float *out2, int bound){
 	int offset = threadIdx.x + blockIdx.x * blockDim.x;
 	if (offset < bound){
@@ -117,6 +120,7 @@ ShiftableBilateralFilter::init(int width, int height, float radius, int sigma_r,
 	checkCUDA(cudaMalloc((void **)&m_dev_phi4, sizeof(float) * width * height),
 		"Error : Allocating device memory for filter");
 
+	// Register GL textures to CUDA.
 	checkCUDA(cudaGraphicsGLRegisterImage(&m_graphicResources[0], textureID, GL_TEXTURE_2D, cudaGraphicsMapFlagsNone),
 		"Error : Registering graphic resources");
 }
@@ -125,6 +129,7 @@ void
 ShiftableBilateralFilter::run() {
 	cudaArray *arr_data = NULL;
 
+	// Map device memory between GL and CUDA.
 	checkCUDA(cudaGraphicsMapResources(1, m_graphicResources),
 		"Error : Mapping graphic resources");
 	checkCUDA(cudaGraphicsSubResourceGetMappedArray(&arr_data, m_graphicResources[0], 0, 0),
@@ -139,10 +144,8 @@ ShiftableBilateralFilter::run() {
 	checkCUDA(cudaMemset(m_dev_out2, 0, sizeof(float) * m_width * m_height),
 		"Error : Initializing device memory for filter");
 
+	// Run filter using trigonometric range kernel.
 	int bound = m_width * m_height;
-	//m_M = 0;
-	//m_N = 1;
-	//int k = 0;
 	for (int k = m_M; k <= m_N - m_M; ++k){
 		float trigonalCoeff = (float)(2 * k - m_N) * m_gamma;
 		float seriesCoeff = nchoosek(m_N, k) * m_perNsquare;
@@ -152,6 +155,7 @@ ShiftableBilateralFilter::run() {
 			m_dev_phi1, m_dev_phi2, m_dev_phi3, m_dev_phi4,
 			trigonalCoeff, bound);
 
+		// Run spatial filter.
 		m_lowpassFilter->run(m_dev_phi1);
 		m_lowpassFilter->run(m_dev_phi2);
 		m_lowpassFilter->run(m_dev_phi3);
@@ -170,6 +174,7 @@ ShiftableBilateralFilter::run() {
 	checkCUDA(cudaGetLastError(),
 		"Error : bilateral kernel function");
 
+	// Write the result and unmap device memory.
 	checkCUDA(cudaMemcpyToArray(arr_data, 0, 0, m_dev_data, m_width * m_height * sizeof(float), cudaMemcpyDeviceToDevice),
 		"Error : Memcpy to cudaArray");
 	checkCUDA(cudaGraphicsUnmapResources(1, m_graphicResources),

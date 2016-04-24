@@ -7,12 +7,12 @@
 #else
 	#include <Windows.h>
 	#include "gl\glew.h"
-	#include "gl\wglew.h"
 
 	#pragma comment(lib, "cufft")
 	#pragma comment(lib, "gl\\glew32.lib") 
 	#pragma comment(lib, "opengl32.lib")
 	#pragma comment(lib, "gl\\glfw3dll.lib")
+	#pragma comment(lib, "FreeImage\\FreeImage.lib")
 #endif
 
 //#include <GLUT/glut.h> 
@@ -34,5 +34,16 @@ void	printShaderInfoLog(GLuint obj, char* shaderName);
 void	printProgramInfoLog(GLuint obj);
 GLuint	setShaders(const char* vShaderFileName, const char* fShaderFileName);
 bool	checkOpenGL(const char* message, const char* file, int line, bool exitOnError, bool report);
+
+#define PER255F 0.003921568627f	//@ /255.0f
+
+//@ Base class for OpenGL wrapper classes.
+class GLObject {
+protected:
+	GLuint m_id;
+public:
+	virtual		~GLObject() { }
+	GLuint		getID() const		{ return m_id; }
+};
 
 #endif	// _SHADER_BASICS_H_

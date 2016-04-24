@@ -19,20 +19,20 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="BFGL.h" />
+    <ClInclude Include="BilateralFilterGL.h" />
     <ClInclude Include="BilateralFilter.cuh" />
     <ClInclude Include="Common.h" />
     <ClInclude Include="Font.h" />
+    <ClInclude Include="FrameRate.h" />
     <ClInclude Include="LowpassFilter.cuh" />
     <ClInclude Include="PBFSystem2D.cuh" />
     <ClInclude Include="SFBF.cuh" />
     <ClInclude Include="shaderBasics.h" />
-    <ClInclude Include="temp.h" />
     <ClInclude Include="Shader.h" />
+    <ClInclude Include="Texture.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="BilateralFilter.comp.glsl" />
-    <None Include="ClassDiagram.cd" />
+    <None Include="BilateralFilter.cs.glsl" />
     <None Include="depth.frag" />
     <None Include="depth.vert" />
     <None Include="skybox.frag" />
@@ -43,9 +43,13 @@
     <None Include="thickness.vert" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="BilateralFilterGL.cpp" />
+    <ClCompile Include="Font.cpp" />
+    <ClCompile Include="FrameRate.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Shader.cpp" />
     <ClCompile Include="shaderBasics.cpp" />
-    <ClCompile Include="temp.cpp" />
+    <ClCompile Include="Texture.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="BilateralFilter.cu" />

@@ -21,19 +21,22 @@
     <ClInclude Include="Font.h">
       <Filter>Source Codes</Filter>
     </ClInclude>
-    <ClInclude Include="temp.h">
-      <Filter>Source Codes</Filter>
-    </ClInclude>
-    <ClInclude Include="SFBF.cuh">
-      <Filter>Source Codes</Filter>
-    </ClInclude>
     <ClInclude Include="LowpassFilter.cuh">
       <Filter>Source Codes</Filter>
     </ClInclude>
-    <ClInclude Include="BFGL.h">
+    <ClInclude Include="Shader.h">
       <Filter>Source Codes</Filter>
     </ClInclude>
-    <ClInclude Include="Shader.h">
+    <ClInclude Include="Texture.h">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="BilateralFilterGL.h">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameRate.h">
+      <Filter>Source Codes</Filter>
+    </ClInclude>
+    <ClInclude Include="SFBF.cuh">
       <Filter>Source Codes</Filter>
     </ClInclude>
   </ItemGroup>
@@ -62,8 +65,7 @@
     <None Include="skybox.frag">
       <Filter>Source Codes</Filter>
     </None>
-    <None Include="ClassDiagram.cd" />
-    <None Include="BilateralFilter.comp.glsl">
+    <None Include="BilateralFilter.cs.glsl">
       <Filter>Source Codes</Filter>
     </None>
   </ItemGroup>
@@ -74,7 +76,19 @@
     <ClCompile Include="shaderBasics.cpp">
       <Filter>Source Codes</Filter>
     </ClCompile>
-    <ClCompile Include="temp.cpp">
+    <ClCompile Include="Shader.cpp">
+      <Filter>Source Codes</Filter>
+    </ClCompile>
+    <ClCompile Include="Texture.cpp">
+      <Filter>Source Codes</Filter>
+    </ClCompile>
+    <ClCompile Include="BilateralFilterGL.cpp">
+      <Filter>Source Codes</Filter>
+    </ClCompile>
+    <ClCompile Include="Font.cpp">
+      <Filter>Source Codes</Filter>
+    </ClCompile>
+    <ClCompile Include="FrameRate.cpp">
       <Filter>Source Codes</Filter>
     </ClCompile>
   </ItemGroup>
@@ -85,10 +99,10 @@
     <CudaCompile Include="BilateralFilter.cu">
       <Filter>Source Codes</Filter>
     </CudaCompile>
-    <CudaCompile Include="SFBF.cu">
+    <CudaCompile Include="LowpassFilter.cu">
       <Filter>Source Codes</Filter>
     </CudaCompile>
-    <CudaCompile Include="LowpassFilter.cu">
+    <CudaCompile Include="SFBF.cu">
       <Filter>Source Codes</Filter>
     </CudaCompile>
   </ItemGroup>

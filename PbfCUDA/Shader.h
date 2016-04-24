@@ -1,152 +1,63 @@
 #pragma once
 
 #include "gl\glew.h"
-#include <iostream>
-#include <fstream>
-#include <string>
+#include "glm\glm.hpp"
+#include "shaderBasics.h"
 #include <vector>
 #include <map>
 
-class ShaderUnit {
+//@ OpenGL wrapper for shader unit.
+class ShaderUnit : public GLObject{
 protected:
-	GLuint m_id;
-
-	ShaderUnit(GLenum type, const char *code){
-		// Create shader from code.
-		m_id = glCreateShader(type);
-		glShaderSource(m_id, 1, &code, NULL);
-		glCompileShader(m_id);
-	}
+	ShaderUnit(GLenum type, const char *code);
 public:
-	static ShaderUnit* createWithString(GLenum type, const char *code){
-		std::string strType;
-		switch (type)
-		{
-		case GL_VERTEX_SHADER:
-			strType = "vertex";
-			break;
-		case GL_FRAGMENT_SHADER:
-			strType = "fragment";
-			break;
-		case GL_GEOMETRY_SHADER:
-			strType = "geometry";
-			break;
-		case GL_COMPUTE_SHADER:
-			strType = "compute";
-			break;
-		default:
-			std::cout << "Compiling shader failure. Unsupported shader type." << std::endl;
-			return NULL;
-		}
-		std::cout << "Compiling " << strType << " shader with string..." << std::endl;
+	//@ Create shader unit with c-string.
+	static ShaderUnit*	createWithString(GLenum type, const char *code);
 
-		return new ShaderUnit(type, code);
-	}
+	//@ Create shader unit with file.
+	static ShaderUnit*	createWithFile(GLenum type, const char *filename);
 
-	static ShaderUnit* createWithFile(GLenum type, const char *filename){
-		// Read the shader code from the file.
-		std::string code;
-		std::ifstream stream(filename, std::ios::in);
-		if (stream.is_open()){
-			std::string line = "";
-			while (std::getline(stream, line)){
-				code += "\n" + line;
-			}
-			stream.close();
-		}
-		else{
-			std::cerr << "Impossible to open \"" << filename << "\". Are you in the right directory?" << std::endl;
-			exit(EXIT_FAILURE);
-		}
+	virtual				~ShaderUnit()		{ glDeleteShader(m_id); }
 
-		std::string strType;
-		switch (type)
-		{
-		case GL_VERTEX_SHADER:
-			strType = "vertex";
-			break;
-		case GL_FRAGMENT_SHADER:
-			strType = "fragment";
-			break;
-		case GL_GEOMETRY_SHADER:
-			strType = "geometry";
-			break;
-		case GL_COMPUTE_SHADER:
-			strType = "compute";
-			break;
-		default:
-			std::cerr << "Compiling shader failure. Unsupported shader type." << std::endl;
-			exit(EXIT_FAILURE);
-		}
-
-		// Compile vertex shader.
-		std::cout << "Compiling " << strType << " shader with \"" << filename << "\"..." << std::endl;
-
-		return new ShaderUnit(type, code.c_str());
-	}
-
-	~ShaderUnit(){
-		glDeleteShader(m_id);
-	}
-
-	GLuint getID() const {
-		return m_id;
-	}
+	//@ Get shader type(c-string) from GLenum(GL_VERTEX_SHADER / GL_FRAGMENT_SHADER / ...).
+	static const char*	getShaderTypeString(GLenum type);
 };
 
-class Shader {
+//@ OpenGL wrapper for shader program.
+class Shader : public GLObject{
 protected:
-	GLuint m_id;
+	std::map<std::string, GLint> m_uniformIDs;
 
-	Shader(const std::vector<ShaderUnit *> &shaderUnits){
-		// Link the program.
-		std::cout << "Linking program..." << std::endl;
-		m_id = glCreateProgram();
-		for(auto &shaderUnit : shaderUnits){
-			glAttachShader(m_id, shaderUnit->getID());
-		}
-		glLinkProgram(m_id);
-
-		// Check the program
-		GLint result = GL_FALSE;
-		int infoLogLength;
-		glGetProgramiv(m_id, GL_LINK_STATUS, &result);
-		glGetProgramiv(m_id, GL_INFO_LOG_LENGTH, &infoLogLength);
-		//if (infoLogLength > 1){
-		if (result == GL_FALSE){
-			std::vector<char> errorMessage(infoLogLength);
-			glGetProgramInfoLog(m_id, infoLogLength, nullptr, &errorMessage[0]);
-			std::cout << &errorMessage[0] << std::endl;
-			std::cerr << "Compiling shader program." << std::endl;
-			exit(EXIT_FAILURE);
-		}
-
-		for (auto &shaderunit : shaderUnits){
-			delete shaderunit;
-		}
-	}
+	Shader(const std::vector<ShaderUnit *> &shaderUnits);
 public:
-	static Shader* create(ShaderUnit *shaderUnit1, ShaderUnit *shaderUnit2 = NULL, ShaderUnit *shaderUnit3 = NULL){
-		std::vector<ShaderUnit *> shaderUnits;
-		shaderUnits.push_back(shaderUnit1);
-		if (shaderUnit2 != NULL){
-			shaderUnits.push_back(shaderUnit2);
-		}
-		if (shaderUnit3 != NULL){
-			shaderUnits.push_back(shaderUnit3);
-		}
-		return new Shader(shaderUnits);
-	}
+	//@ Create shader program with shader units.
+	static Shader* create(ShaderUnit *shaderUnit1,
+						ShaderUnit *shaderUnit2 = nullptr,
+						ShaderUnit *shaderUnit3 = nullptr);
 
-	~Shader(){
-		glDeleteProgram(m_id);
-	}
+	//@ Create shader program with files.
+	static Shader* createWithFile(const char *vertex_shader_filename,
+								const char *fragment_shader_filename,
+								const char *geometry_shader_filename = nullptr);
 
-	GLint getUniformLocation(const char *uniformLocation) const{
-		return glGetUniformLocation(m_id, uniformLocation);
-	}
+	virtual			~Shader()			{ glDeleteProgram(m_id); }
 
-	GLuint getID() const {
-		return m_id;
-	}
+	void			bind() const		{ glUseProgram(m_id); }
+	static void		bindDefault()		{ glUseProgram(0); }
+
+	//@ Get uniform ID using glUniformLocation().
+	GLint			getUniformLocation(const char *location);
+
+	// Uniform setters.
+	//
+	void			setUniform(const char *location, GLint value);
+	void			setUniform(const char *location, GLuint value);
+	void			setUniform(const char *location, GLfloat value);
+	void			setUniform(const char *location, GLdouble value);
+	void			setUniform(const char *location, const glm::vec2 &value);
+	void			setUniform(const char *location, const glm::ivec2 &value);
+	void			setUniform(const char *location, const glm::vec3 &value);
+	void			setUniform(const char *location, const glm::vec4 &value);
+	void			setUniform(const char *location, const glm::mat3 &value, GLboolean transpose = GL_FALSE);
+	void			setUniform(const char *location, const glm::mat4 &value, GLboolean transpose = GL_FALSE);
 };

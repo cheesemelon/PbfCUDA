@@ -6,21 +6,23 @@
 
 class LowpassFilter;
 
+//@ nCk. This is implemented as recursive function.
 extern int nchoosek(int n, int k);
 
+//@ Shiftable bilateral filter. (Trigonometric function bilateral filter)
 class ShiftableBilateralFilter{
 protected:
-	cudaGraphicsResource_t m_graphicResources[1];
+	cudaGraphicsResource_t m_graphicResources[1];				//@ To use GL resource in CUDA.
 	float *m_dev_data;
 	float *m_dev_out1, *m_dev_out2;
 	float *m_dev_phi1, *m_dev_phi2, *m_dev_phi3, *m_dev_phi4;
 	int m_width, m_height;
 	int m_N, m_M;
 	float m_perNsquare, m_gamma;
-	int m_grids1D; const int m_threads1D;
-	dim3 m_grids2D; const dim3 m_threads2D;
+	int m_grids1D; const int m_threads1D;						//@ # of threads and grids for 1D dispatching.
+	dim3 m_grids2D; const dim3 m_threads2D;						//@ # of threads and grids for 2D dispatching.
 
-	LowpassFilter *m_lowpassFilter;
+	LowpassFilter *m_lowpassFilter;								//@ Spatial filter.
 public:
 	ShiftableBilateralFilter() :
 		m_dev_data(NULL), m_dev_out1(NULL), m_dev_out2(NULL),
@@ -33,11 +35,16 @@ public:
 	}
 
 	~ShiftableBilateralFilter();
-	void init(int width, int height, float radius, int sigma_r, float tolerance, unsigned int textureID);
 
-	void run();
+	//@ Init filter. This must be done before to use filter.
+	void	init(int width, int height, float radius, int sigma_r, float tolerance, unsigned int textureID);
 
-	void setRadius(float radius);
-	void setParam(int sigma_r, float tolerance);
-	int getNumIterations() { return m_N - 2 * m_M; }
+	//@ Run filter.
+	void	run();
+
+	void	setRadius(float radius);
+	void	setParam(int sigma_r, float tolerance);
+
+	//@ Get filter iteration. Spatial filter will be run 4 times of iteration.
+	int		getNumIterations()		{ return m_N - 2 * m_M; }
 };
